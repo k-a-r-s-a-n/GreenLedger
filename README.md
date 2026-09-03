@@ -183,6 +183,13 @@ npm run dev
 # Open http://localhost:3000
 ```
 
+### Start Everything With One Command (Windows)
+After installing the dependencies above, run this from the repository root:
+```powershell
+powershell -ExecutionPolicy Bypass -File .\start-dev.ps1
+```
+This opens the Windows telemetry agent, FastAPI backend, and Next.js frontend in separate PowerShell windows.
+
 ---
 
 ---
