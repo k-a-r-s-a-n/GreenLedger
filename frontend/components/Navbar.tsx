@@ -12,19 +12,16 @@ import {
   AlertCircle,
   X,
   Zap, 
-  ShoppingBag, 
-  Tv
+  ShoppingBag
 } from "lucide-react";
 import { useWallet } from "../context/WalletContext";
 
 interface NavbarProps {
   isLive?: boolean;
-  onTogglePresentation?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({ 
-  isLive = false, 
-  onTogglePresentation 
+  isLive = false
 }) => {
   const pathname = usePathname();
   const { wallet, isConnecting, connect, switchNetwork, clearError } = useWallet();
@@ -105,17 +102,6 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span className={`w-2 h-2 rounded-full ${isLive ? "bg-emerald-400 animate-pulse" : "bg-amber-400"}`} />
               {isLive ? "Live Windows Agent" : "Agent Offline"}
             </div>
-
-            {/* Presentation Mode Button */}
-            {onTogglePresentation && (
-              <button
-                onClick={onTogglePresentation}
-                title="Enter Judge Presentation Mode (Full Screen Pitch Layout)"
-                className="p-1.5 rounded-lg bg-surface-card border border-surface-border text-gray-400 hover:text-white hover:border-cyber-cyan transition-all hidden sm:flex items-center"
-              >
-                <Tv className="w-4 h-4 text-cyber-cyan" />
-              </button>
-            )}
 
             {/* MetaMask Web3 Connector */}
             <button

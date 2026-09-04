@@ -26,15 +26,18 @@ class OptimizationEngineService:
     def __init__(self):
         self._last_optimization_time: Dict[str, float] = {}
         self._last_telemetry_hash: Dict[str, str] = {}
+        self._applied_action_ids: Dict[str, set] = {}
 
-    def analyze_telemetry_for_recommendations(self, telemetry: Dict[str, Any]) -> List[OptimizationRecommendation]:
+    def analyze_telemetry_for_recommendations(self, telemetry: Dict[str, Any], user_id: str = "default_user") -> List[OptimizationRecommendation]:
         """
         Generates contextual optimization opportunities from current device telemetry.
+        Omits optimizations that have already been applied.
         """
         recommendations = []
         cpu = telemetry.get("cpu_utilization", 0.0)
         mem = telemetry.get("memory_usage", 0.0)
         top_procs = telemetry.get("top_cpu_processes") or []
+        user_applied = self._applied_action_ids.get(user_id, set())
 
         # 1. High CPU Background Processes
         for p in top_procs:
@@ -43,8 +46,11 @@ class OptimizationEngineService:
                 pname = p.get("name", "Application")
                 if str(pname).lower() not in OPTIMIZABLE_PROCESS_NAMES:
                     continue
+                act_id = f"close_process_{p.get('pid')}"
+                if act_id in user_applied:
+                    continue
                 recommendations.append(OptimizationRecommendation(
-                    id=f"close_process_{p.get('pid')}",
+                    id=act_id,
                     title=f"Suspend High-CPU App: {pname}",
                     category="process_management",
                     priority="high" if proc_cpu > 20.0 else "medium",
@@ -59,16 +65,17 @@ class OptimizationEngineService:
                 ))
 
         # 2. Windows Energy Saver Mode
-        recommendations.append(OptimizationRecommendation(
-            id="enable_power_saver",
-            title="Enable Windows Energy Saver Profile",
-            category="power_plan",
-            priority="high",
-            estimated_power_reduction_pct=None,
-            reversible=True,
-            description="Throttles aggressive core boost thresholds and reduces background indexers.",
-            action_name="Switch Power Plan"
-        ))
+        if "enable_power_saver" not in user_applied:
+            recommendations.append(OptimizationRecommendation(
+                id="enable_power_saver",
+                title="Enable Windows Energy Saver Profile",
+                category="power_plan",
+                priority="high",
+                estimated_power_reduction_pct=None,
+                reversible=True,
+                description="Throttles aggressive core boost thresholds and reduces background indexers.",
+                action_name="Switch Power Plan"
+            ))
 
         return recommendations
 
@@ -120,6 +127,7 @@ class OptimizationEngineService:
 
         self._last_optimization_time[user_id] = now
         self._last_telemetry_hash[user_id] = telemetry_hash
+        self._applied_action_ids.setdefault(user_id, set()).add(action_id)
         
         # 5. Award Green Credits
         from services.credits.rewards import credit_service

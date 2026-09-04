@@ -261,3 +261,32 @@ export async function mintBadgeOnChain(
     };
   }
 }
+
+/**
+ * Checks whether a given token ID has already been minted to the user's account on Sepolia.
+ */
+export async function checkBadgeMintedOnChain(
+  tokenId: number,
+  userAddress: string
+): Promise<boolean> {
+  const provider = getEthereumProvider();
+  if (!provider || !CONTRACT_ADDRESS || !userAddress) return false;
+
+  try {
+    const browserProvider = new ethers.BrowserProvider(provider, "any");
+    const contract = new ethers.Contract(CONTRACT_ADDRESS, GREEN_BADGE_ABI, browserProvider);
+
+    try {
+      const hasMinted = await contract.hasMintedBadge(tokenId, userAddress);
+      if (hasMinted === true) return true;
+    } catch {
+      // Fallback to balanceOf
+    }
+
+    const balance = await contract.balanceOf(userAddress, tokenId);
+    return Number(balance) > 0;
+  } catch (err) {
+    return false;
+  }
+}
+

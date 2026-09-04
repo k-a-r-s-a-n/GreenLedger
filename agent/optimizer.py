@@ -39,26 +39,31 @@ class WindowsOptimizer:
         """
         Scans current live system state and returns a ranked list of safe,
         explainable optimization opportunities.
+        Filters out actions that have already been applied in this session.
         """
         recommendations = []
+        applied_action_ids = {a.get("action_id") for a in self._applied_actions}
+        applied_pids = {a.get("pid") for a in self._applied_actions if a.get("pid") is not None}
+        applied_names = {str(a.get("name")).lower() for a in self._applied_actions if a.get("name")}
         
         # 1. Check Windows Power Plan
-        try:
-            res = subprocess.run(["powercfg", "/getactivescheme"], capture_output=True, text=True)
-            is_power_saver = POWER_SCHEMES["power_saver"].lower() in res.stdout.lower()
-            if not is_power_saver:
-                recommendations.append({
-                    "id": "enable_power_saver",
-                    "title": "Enable Windows Energy Saver Mode",
-                    "category": "power_plan",
-                    "priority": "high",
-                    "estimated_power_reduction_pct": None,
-                    "reversible": True,
-                    "description": "Switches the Windows energy scheme to Power Saver to reduce CPU clock throttling floor and background synchronization.",
-                    "action_name": "Switch Power Plan"
-                })
-        except Exception:
-            pass
+        if "enable_power_saver" not in applied_action_ids:
+            try:
+                res = subprocess.run(["powercfg", "/getactivescheme"], capture_output=True, text=True)
+                is_power_saver = POWER_SCHEMES["power_saver"].lower() in res.stdout.lower()
+                if not is_power_saver:
+                    recommendations.append({
+                        "id": "enable_power_saver",
+                        "title": "Enable Windows Energy Saver Mode",
+                        "category": "power_plan",
+                        "priority": "high",
+                        "estimated_power_reduction_pct": None,
+                        "reversible": True,
+                        "description": "Switches the Windows energy scheme to Power Saver to reduce CPU clock throttling floor and background synchronization.",
+                        "action_name": "Switch Power Plan"
+                    })
+            except Exception:
+                pass
 
         # 2. Inspect Running Processes for High-Resource Non-System Candidates
         for p in psutil.process_iter(['pid', 'name', 'cpu_percent', 'memory_percent']):
@@ -69,6 +74,9 @@ class WindowsOptimizer:
                 mem_p = p.info.get('memory_percent') or 0.0
 
                 if name in PROTECTED_PROCESSES or name not in OPTIMIZABLE_PROCESS_CANDIDATES:
+                    continue
+
+                if pid in applied_pids or f"close_process_{pid}" in applied_action_ids or name in applied_names:
                     continue
 
                 # Check if it is a notable resource consumer or background app
@@ -114,7 +122,7 @@ class WindowsOptimizer:
                 return {"success": True, "message": "Windows Energy Saver profile successfully activated."}
             return {"success": False, "error": f"powercfg returned exit code {res.returncode}: {res.stderr}"}
 
-        # Action 2: Graceful Close of Specific User Application
+        # Action 2: Graceful Close of Specific User Application (Window Tree Aware)
         if action_id.startswith("close_process_"):
             try:
                 requested_pid = int(action_id.replace("close_process_", ""))
@@ -131,21 +139,64 @@ class WindowsOptimizer:
                 if pname in PROTECTED_PROCESSES or pid <= 4:
                     return {"success": False, "error": f"Security violation: Process '{pname}' (PID {pid}) is a protected system service."}
 
-                # Graceful termination request (SIGTERM)
-                proc.terminate()
+                # Find root application process to ensure main UI window closes
+                root = proc
                 try:
-                    proc.wait(timeout=2.0)
-                except psutil.TimeoutExpired:
-                    return {"success": False, "error": f"Process PID {pid} did not exit after graceful request; no force kill performed."}
+                    while root.parent() and root.parent().name().lower() == pname:
+                        root = root.parent()
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+
+                # Graceful window close via taskkill (sends WM_CLOSE to window)
+                try:
+                    subprocess.run(["taskkill", "/PID", str(root.pid)], capture_output=True, text=True, timeout=3)
+                except Exception:
+                    pass
+
+                closed = False
+                try:
+                    root.wait(timeout=1.5)
+                    closed = True
+                except (psutil.TimeoutExpired, psutil.NoSuchProcess):
+                    pass
+
+                # If still running, cleanly terminate entire process tree
+                if not closed:
+                    try:
+                        all_procs = [root] + root.children(recursive=True)
+                        for p_item in all_procs:
+                            try:
+                                p_item.terminate()
+                            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                                pass
+
+                        _, alive = psutil.wait_procs(all_procs, timeout=1.5)
+                        for p_item in alive:
+                            try:
+                                p_item.kill()
+                            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                                pass
+                    except Exception as tree_err:
+                        logger.warning(f"Process tree termination warning: {tree_err}")
+                        try:
+                            subprocess.run(["taskkill", "/PID", str(root.pid), "/T", "/F"], capture_output=True, text=True, timeout=3)
+                        except Exception:
+                            pass
 
                 self._applied_actions.append({
                     "action_id": action_id,
                     "type": "process_terminate",
                     "name": pname,
+                    "pid": pid,
+                    "root_pid": root.pid
+                })
+                return {"success": True, "message": f"Application '{pname}' window and processes closed successfully."}
+            except psutil.NoSuchProcess:
+                self._applied_actions.append({
+                    "action_id": action_id,
+                    "type": "process_terminate",
                     "pid": pid
                 })
-                return {"success": True, "message": f"Application '{pname}' (PID {pid}) safely closed."}
-            except psutil.NoSuchProcess:
                 return {"success": True, "message": f"Process PID {pid} was already closed."}
             except psutil.AccessDenied:
                 return {"success": False, "error": f"Access denied terminating process PID {pid}."}

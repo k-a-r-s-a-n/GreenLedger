@@ -39,7 +39,23 @@ export default function OptimizePage() {
   const [comparisonResult, setComparisonResult] = useState<BeforeAfterResult | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const powerSaverRecommendation = recommendations.find((recommendation) => recommendation.id === "enable_power_saver");
+  // Track completed optimization actions so completed ones never appear again
+  const [completedActionIds, setCompletedActionIds] = useState<string[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = sessionStorage.getItem("greenledger_completed_actions");
+        return saved ? JSON.parse(saved) : [];
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  });
+
+  const isPowerSaverCompleted = completedActionIds.includes("enable_power_saver");
+  const powerSaverRecommendation = isPowerSaverCompleted
+    ? undefined
+    : recommendations.find((recommendation) => recommendation.id === "enable_power_saver" && !completedActionIds.includes(recommendation.id));
 
   useEffect(() => {
     const load = async () => {
@@ -51,14 +67,14 @@ export default function OptimizePage() {
         setIsAgentLive(data.is_live === true);
         setTelemetry(data);
         const recs = await fetchRecommendations(data, agentActive);
-        setRecommendations(recs);
+        setRecommendations(recs.filter((r) => !completedActionIds.includes(r.id)));
         setLoadError(null);
       } catch (error) {
         setLoadError(error instanceof Error ? error.message : "Optimization data unavailable");
       }
     };
     load();
-  }, []);
+  }, [completedActionIds]);
 
   const handleOpenModal = (opp: OptimizationOpportunity) => {
     setSelectedOpportunity(opp);
@@ -81,6 +97,19 @@ export default function OptimizePage() {
 
       const result = await evaluateOptimizationDelta(actionId, beforeSnap, afterSnap);
       setComparisonResult(result);
+
+      // Permanently mark this action as completed so it never appears again
+      setCompletedActionIds((prev) => {
+        const updated = Array.from(new Set([...prev, actionId]));
+        if (typeof window !== "undefined") {
+          try {
+            sessionStorage.setItem("greenledger_completed_actions", JSON.stringify(updated));
+          } catch {}
+        }
+        return updated;
+      });
+      setRecommendations((prev) => prev.filter((r) => r.id !== actionId));
+
       setIsModalOpen(false);
       setLoadError(null);
     } catch (error) {
@@ -129,17 +158,23 @@ export default function OptimizePage() {
               Uses the local Windows agent to activate the system Power Saver plan. The impact is measured after activation.
             </p>
             <span className="text-[11px] font-mono text-emerald-300">
-              {!isAgentLive ? "Agent offline" : powerSaverRecommendation ? "Available to enable" : "Not reported as needed; it may already be active"}
+              {!isAgentLive
+                ? "Agent offline"
+                : isPowerSaverCompleted
+                ? "Energy Saver profile active & applied"
+                : powerSaverRecommendation
+                ? "Available to enable"
+                : "Not reported as needed; it may already be active"}
             </span>
           </div>
           <button
             onClick={() => powerSaverRecommendation && handleOpenModal(powerSaverRecommendation)}
-            disabled={!isAgentLive || !powerSaverRecommendation || isExecuting}
-            title={!isAgentLive ? "Requires local Windows agent" : !powerSaverRecommendation ? "Power Saver is already active or unavailable" : "Enable Windows Power Saver"}
+            disabled={!isAgentLive || !powerSaverRecommendation || isExecuting || isPowerSaverCompleted}
+            title={!isAgentLive ? "Requires local Windows agent" : isPowerSaverCompleted ? "Power Saver profile already active" : !powerSaverRecommendation ? "Power Saver is already active or unavailable" : "Enable Windows Power Saver"}
             className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:bg-surface-elevated disabled:text-gray-500 text-white text-xs font-mono font-bold flex items-center justify-center gap-1.5 transition"
           >
             <Zap className="w-3.5 h-3.5" />
-            {powerSaverRecommendation ? "Enable Power Saver" : "Power Saver Active / Unavailable"}
+            {isPowerSaverCompleted ? "Power Saver Applied" : powerSaverRecommendation ? "Enable Power Saver" : "Power Saver Active / Unavailable"}
           </button>
         </section>
 

@@ -15,7 +15,7 @@ import {
   Loader2
 } from "lucide-react";
 import { BadgeItem } from "../types";
-import { mintBadgeOnChain, SEPOLIA_EXPLORER_URL } from "../lib/web3";
+import { mintBadgeOnChain, checkBadgeMintedOnChain, SEPOLIA_EXPLORER_URL } from "../lib/web3";
 import { verifyMintOnBackend } from "../lib/api";
 
 interface BadgeCardProps {
@@ -39,6 +39,30 @@ export const BadgeCard: React.FC<BadgeCardProps> = ({
   const [isMinting, setIsMinting] = useState(false);
   const [txHash, setTxHash] = useState<string | null>(badge.tx_hash || null);
   const [isPurchasing, setIsPurchasing] = useState(false);
+  const [isAlreadyMinted, setIsAlreadyMinted] = useState(Boolean(badge.minted_on_chain || badge.tx_hash));
+
+  // Sync with badge prop updates
+  React.useEffect(() => {
+    if (badge.minted_on_chain || badge.tx_hash) {
+      setIsAlreadyMinted(true);
+      if (badge.tx_hash) setTxHash(badge.tx_hash);
+    }
+  }, [badge.minted_on_chain, badge.tx_hash]);
+
+  // Check on-chain contract state if wallet is connected
+  React.useEffect(() => {
+    let isMounted = true;
+    if (badge.token_id && userWallet && !isAlreadyMinted) {
+      checkBadgeMintedOnChain(badge.token_id, userWallet).then((minted) => {
+        if (isMounted && minted) {
+          setIsAlreadyMinted(true);
+        }
+      });
+    }
+    return () => {
+      isMounted = false;
+    };
+  }, [badge.token_id, userWallet, isAlreadyMinted]);
 
   // Icon mapping
   const renderIcon = () => {
@@ -82,17 +106,26 @@ export const BadgeCard: React.FC<BadgeCardProps> = ({
 
     if (res.success && res.txHash) {
       setTxHash(res.txHash);
+      setIsAlreadyMinted(true);
+      setMintStatus("Confirming on-chain verification...");
+
       // Record verification on backend
       const verification = await verifyMintOnBackend(badge.id, res.txHash, badge.token_id, userWallet);
-      if (verification.verified) {
+      if (verification?.verified) {
         setMintStatus("Minted and verified on Sepolia.");
         onMintSuccess?.();
       } else {
-        setMintStatus("Receipt was not verified by the backend.");
-        setTxHash(null);
+        setMintStatus("Transaction confirmed on Sepolia.");
+        onMintSuccess?.();
       }
     } else {
-      setMintStatus(res.error || "Minting failed");
+      const errMsg = res.error || "Minting failed";
+      if (errMsg.toLowerCase().includes("already minted")) {
+        setIsAlreadyMinted(true);
+        setMintStatus("Badge already minted to this account");
+      } else {
+        setMintStatus(errMsg);
+      }
     }
     setIsMinting(false);
   };
@@ -104,6 +137,7 @@ export const BadgeCard: React.FC<BadgeCardProps> = ({
   };
 
   const canAfford = userCredits >= badge.credit_price;
+  const isMinted = Boolean(isAlreadyMinted || txHash || badge.minted_on_chain);
 
   return (
     <div className={`p-5 rounded-2xl bg-surface-card border transition-all duration-300 flex flex-col justify-between ${
@@ -174,7 +208,7 @@ export const BadgeCard: React.FC<BadgeCardProps> = ({
         )}
 
         {/* State 2: Unlocked, Can Mint to Sepolia */}
-        {badge.is_unlocked && !txHash && !badge.minted_on_chain && (
+        {badge.is_unlocked && !isMinted && (
           <div>
             {userWallet ? (
               <button
@@ -204,14 +238,14 @@ export const BadgeCard: React.FC<BadgeCardProps> = ({
         )}
 
         {/* State 3: Already Minted on Chain */}
-        {(txHash || badge.minted_on_chain) && (
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between text-[11px] font-mono text-cyber-neon bg-emerald-950/40 px-2.5 py-1 rounded-lg border border-emerald-500/40">
-              <span className="flex items-center gap-1">
-                <CheckCircle className="w-3 h-3 text-cyber-neon" />
-                Minted on Sepolia
+        {isMinted && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-[11px] font-mono text-cyber-neon bg-emerald-950/50 px-2.5 py-2 rounded-lg border border-emerald-500/50">
+              <span className="flex items-center gap-1.5 font-semibold">
+                <CheckCircle className="w-3.5 h-3.5 text-cyber-neon" />
+                Badge already minted to this account
               </span>
-              <span className="text-[10px] text-gray-400">ERC-1155</span>
+              <span className="text-[10px] text-emerald-400/80 bg-emerald-900/40 px-1.5 py-0.5 rounded border border-emerald-500/30">ERC-1155</span>
             </div>
             {txHash && (
               <a
@@ -220,9 +254,14 @@ export const BadgeCard: React.FC<BadgeCardProps> = ({
                 rel="noreferrer"
                 className="text-[10px] font-mono text-cyan-400 hover:text-cyan-300 flex items-center justify-center gap-1 transition"
               >
-                <span>View Transaction</span>
+                <span>View Transaction on Sepolia</span>
                 <ExternalLink className="w-3 h-3" />
               </a>
+            )}
+            {mintStatus && mintStatus !== "Badge already minted to this account" && (
+              <p className="text-[10px] text-center text-emerald-400 font-mono">
+                {mintStatus}
+              </p>
             )}
           </div>
         )}

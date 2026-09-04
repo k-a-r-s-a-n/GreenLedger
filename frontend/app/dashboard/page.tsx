@@ -15,8 +15,7 @@ import {
   ArrowUpRight,
   TrendingDown,
   Sparkles,
-  RefreshCw,
-  Tv
+  RefreshCw
 } from "lucide-react";
 import { Navbar } from "../../components/Navbar";
 import { Footer } from "../../components/Footer";
@@ -24,7 +23,6 @@ import { EnergyCore3D } from "../../components/EnergyCore3D";
 import { TelemetryCard } from "../../components/TelemetryCard";
 import { PowerGauge } from "../../components/PowerGauge";
 import { LiveChart } from "../../components/LiveChart";
-import { PresentationMode } from "../../components/PresentationMode";
 import { fetchTelemetry, predictPower, checkAgentHealth } from "../../lib/api";
 import { TelemetryData, PredictionResult } from "../../types";
 
@@ -33,7 +31,6 @@ export default function DashboardPage() {
   const [prediction, setPrediction] = useState<PredictionResult | null>(null);
   const [isAgentLive, setIsAgentLive] = useState(false);
   const [history, setHistory] = useState<{ time: string; power: number; cpu: number; carbon: number }[]>([]);
-  const [showPresentation, setShowPresentation] = useState(false);
   const [isOptimized, setIsOptimized] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -113,7 +110,6 @@ export default function DashboardPage() {
     <div className="min-h-screen flex flex-col bg-background">
       <Navbar
         isLive={isAgentLive}
-        onTogglePresentation={() => setShowPresentation(true)}
       />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
@@ -143,16 +139,6 @@ export default function DashboardPage() {
             </p>
           </div>
 
-          {/* Quick Toolbar Controls */}
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setShowPresentation(true)}
-              className="px-3 py-1.5 rounded-lg bg-surface-card hover:bg-surface-elevated border border-surface-border text-xs font-mono text-cyan-300 flex items-center gap-1.5 transition"
-            >
-              <Tv className="w-3.5 h-3.5" />
-              <span>Pitch Mode</span>
-            </button>
-          </div>
         </div>
 
         {/* Primary Power & Carbon Highlight Gauge */}
@@ -362,20 +348,6 @@ export default function DashboardPage() {
         <LiveChart history={history} />
 
       </main>
-
-      {/* Presentation Mode Full-Screen Overlay */}
-      {telemetry && (
-        <PresentationMode
-          isOpen={showPresentation}
-          onClose={() => setShowPresentation(false)}
-          telemetry={telemetry}
-          estimatedPower={estimatedPower}
-          carbonRate={carbonRate}
-          credits={null}
-          onQuickOptimize={() => { window.location.href = "/optimize"; }}
-          isOptimized={isOptimized}
-        />
-      )}
 
       <Footer />
     </div>

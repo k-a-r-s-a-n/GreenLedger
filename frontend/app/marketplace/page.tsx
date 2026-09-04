@@ -193,7 +193,7 @@ export default function MarketplacePage() {
               userCredits={userState?.credit_balance || 0}
               userWallet={wallet.address}
               onPurchase={handlePurchase}
-              onMintSuccess={loadData}
+              onMintSuccess={loadDataSafely}
               onConnect={connect}
             />
           ))}
