@@ -1,16 +1,34 @@
 """
 GreenLedger - Blockchain & Sepolia Testnet Verifier Service
 Provides ABI metadata, network constants, and transaction verification logic.
+
+Verification posture (fail closed): a mint is only recorded when ALL checks pass —
+mined receipt (status 0x1), transaction sender/recipient match, a strict ERC-1155
+TransferSingle log with the exact token id/value minted to the wallet, and an
+on-chain balanceOf >= 1 at the mint block. Any unverifiable step returns False.
 """
 
 import re
 import json
 import os
+import time
 from urllib.request import Request, urlopen
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
 
 SEPOLIA_CHAIN_ID = 11155111
 SEPOLIA_EXPLORER_BASE = "https://sepolia.etherscan.io"
+
+# Public Sepolia RPC endpoints used as fallbacks when no SEPOLIA_RPC_URL is configured.
+PUBLIC_SEPOLIA_RPCS = [
+    "https://ethereum-sepolia-rpc.publicnode.com",
+    "https://rpc.sepolia.org",
+    "https://sepolia.drpc.org",
+    "https://1rpc.io/sepolia",
+    "https://rpc2.sepolia.org"
+]
+
+# balanceOf(address,uint256) selector
+_BALANCE_OF_SELECTOR = "0x00fdd58e"
 
 
 def _load_root_env() -> None:
@@ -88,101 +106,118 @@ def verify_tx_hash(tx_hash: str) -> bool:
     return bool(re.match(r"^0x[a-fA-F0-9]{64}$", tx_hash))
 
 
-PUBLIC_SEPOLIA_RPCS = [
-    "https://ethereum-sepolia-rpc.publicnode.com",
-    "https://rpc.sepolia.org",
-    "https://sepolia.drpc.org",
-    "https://1rpc.io/sepolia",
-    "https://rpc2.sepolia.org"
-]
+def _rpc_endpoints() -> List[str]:
+    """
+    Configured RPC first, then public fallbacks (deduplicated).
+    Fail closed: without an explicitly configured RPC URL no verification is attempted.
+    """
+    configured = os.getenv("SEPOLIA_RPC_URL") or os.getenv("NEXT_PUBLIC_RPC_URL")
+    if not configured or not configured.startswith("http"):
+        return []
+    endpoints = [configured]
+    for pub in PUBLIC_SEPOLIA_RPCS:
+        if pub not in endpoints:
+            endpoints.append(pub)
+    return endpoints
+
+
+def _call_rpc(rpc_url: str, method: str, params: list, timeout: int = 6) -> Optional[Dict[str, Any]]:
+    """Single JSON-RPC call; returns None on any transport/JSON-RPC error."""
+    try:
+        payload = json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": params}).encode()
+        request = Request(rpc_url, data=payload, headers={
+            "Content-Type": "application/json",
+            "User-Agent": "GreenLedger/1.0"
+        })
+        with urlopen(request, timeout=timeout) as response:
+            result = json.load(response)
+        if result.get("error") or "result" not in result:
+            return None
+        return result["result"]
+    except Exception:
+        return None
+
+
+def _query_any_rpc(method: str, params: list, endpoints: List[str]) -> Optional[Dict[str, Any]]:
+    for url in endpoints:
+        res = _call_rpc(url, method, params)
+        if res is not None:
+            return res
+    return None
 
 
 def verify_on_chain_mint(tx_hash: str, token_id: int, user_wallet: str) -> bool:
     """
-    Verify a mined transaction and its ERC-1155 token evidence via JSON-RPC.
-    Features robust multi-RPC fallback, block propagation retry, and on-chain balanceOf verification.
+    Verify a mined transaction and its ERC-1155 TransferSingle evidence via JSON-RPC.
+    Fail-closed: every required check must pass, otherwise the mint is NOT verified.
     """
-    configured_rpc = os.getenv("SEPOLIA_RPC_URL") or os.getenv("NEXT_PUBLIC_RPC_URL")
     contract_address = os.getenv("CONTRACT_ADDRESS") or os.getenv("NEXT_PUBLIC_CONTRACT_ADDRESS")
     if not contract_address or not verify_ethereum_address(contract_address):
         return False
 
-    candidate_rpcs = []
-    if configured_rpc and configured_rpc.startswith("http"):
-        candidate_rpcs.append(configured_rpc)
-    for pub_rpc in PUBLIC_SEPOLIA_RPCS:
-        if pub_rpc not in candidate_rpcs:
-            candidate_rpcs.append(pub_rpc)
+    endpoints = _rpc_endpoints()
+    if not endpoints:
+        return False
 
-    def call_rpc(rpc_url: str, method: str, params: list, timeout: int = 6) -> Optional[Dict[str, Any]]:
-        try:
-            payload = json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": params}).encode()
-            request = Request(rpc_url, data=payload, headers={"Content-Type": "application/json", "User-Agent": "GreenLedger/1.0"})
-            with urlopen(request, timeout=timeout) as response:
-                result = json.load(response)
-            if result.get("error") or "result" not in result:
-                return None
-            return result["result"]
-        except Exception:
-            return None
-
-    def query_any_rpc(method: str, params: list) -> Optional[Dict[str, Any]]:
-        for url in candidate_rpcs:
-            res = call_rpc(url, method, params)
-            if res is not None:
-                return res
-        return None
-
-    # Step 1: Query transaction receipt with retry to handle Sepolia block propagation lag
+    # Step 1: Fetch receipt (with retry for Sepolia block propagation lag).
     receipt = None
     transaction = None
     for attempt in range(3):
-        receipt = query_any_rpc("eth_getTransactionReceipt", [tx_hash])
+        receipt = _query_any_rpc("eth_getTransactionReceipt", [tx_hash], endpoints)
         if receipt and receipt.get("status") == "0x1":
-            transaction = query_any_rpc("eth_getTransactionByHash", [tx_hash])
+            transaction = _query_any_rpc("eth_getTransactionByHash", [tx_hash], endpoints)
             break
         if attempt < 2:
-            time.sleep(1.5)
+            time.sleep(1.0)
 
+    if not receipt or receipt.get("status") != "0x1" or not transaction:
+        return False
+
+    # Step 2: The mint call must originate from the claimed wallet and target the contract.
+    if str(transaction.get("from", "")).lower() != user_wallet.lower():
+        return False
+    if str(transaction.get("to", "")).lower() != contract_address.lower():
+        return False
+
+    # Step 3: Strict TransferSingle evidence for the mint.
+    # GreenBadge.mint emits TransferSingle(operator, from=0x0, to=account, id, value=1).
+    # Topics: [signature, operator, from, to]; data: [id (32B), value (32B)].
     contract_lower = contract_address.lower()
-    wallet_lower = user_wallet.lower()
-    wallet_topic = "0x" + ("0" * 24) + wallet_lower[2:]
+    wallet_topic = "0x" + ("0" * 24) + user_wallet[2:].lower()
 
-    # Step 2: Validate via transaction receipt
-    if receipt and receipt.get("status") == "0x1":
-        # Check transaction sender or recipient
-        tx_from = str(transaction.get("from", "") if transaction else "").lower()
-        tx_to = str(transaction.get("to", "") if transaction else "").lower()
-        if (tx_from == wallet_lower or not tx_from) and (tx_to == contract_lower or not tx_to):
-            # Check logs for this contract
-            logs = receipt.get("logs", [])
-            for log in logs:
-                if log.get("address", "").lower() == contract_lower:
-                    topics = [t.lower() for t in log.get("topics", [])]
-                    # Matches TransferSingle or BadgeMinted containing user wallet topic
-                    if any(wallet_topic in t for t in topics) or any(wallet_lower[2:] in t for t in topics):
-                        return True
-            # Even if logs format differs, valid mined tx from user to contract is verified
-            if tx_from == wallet_lower and tx_to == contract_lower:
-                return True
-
-    # Step 3: Direct on-chain verification via balanceOf(address,uint256) eth_call
-    # balanceOf selector is 0x00fdd58e
-    call_data = f"0x00fdd58e{wallet_lower[2:].zfill(64)}{hex(token_id)[2:].zfill(64)}"
-    call_res = query_any_rpc("eth_call", [{"to": contract_address, "data": call_data}, "latest"])
-    if call_res and isinstance(call_res, str):
+    mint_log_found = False
+    for log in receipt.get("logs", []):
+        if str(log.get("address", "")).lower() != contract_lower:
+            continue
+        topics = [str(t).lower() for t in log.get("topics", [])]
+        data = log.get("data", "0x")
+        if len(topics) != 4 or len(data) < 130:
+            continue
         try:
-            balance = int(call_res, 16)
-            if balance >= 1:
-                return True
-        except ValueError:
-            pass
+            id_hex = data[2:66]
+            value_hex = data[66:130]
+            if (topics[3] == wallet_topic
+                    and int(id_hex, 16) == token_id
+                    and int(value_hex, 16) == 1):
+                mint_log_found = True
+                break
+        except (ValueError, IndexError):
+            continue
 
-    # If receipt was successfully confirmed with status 0x1 for this hash, accept
-    if receipt and receipt.get("status") == "0x1":
-        return True
+    if not mint_log_found:
+        return False
 
-    return False
+    # Step 4: Authoritative ownership check — balanceOf(wallet, tokenId) >= 1 at the
+    # mint block. Fail closed if no endpoint can answer.
+    block_number = receipt.get("blockNumber") or "latest"
+    call_data = _BALANCE_OF_SELECTOR + user_wallet[2:].lower().zfill(64) + hex(token_id)[2:].zfill(64)
+    call_result = _query_any_rpc("eth_call", [{"to": contract_address, "data": call_data}, block_number], endpoints)
+    if call_result is None:
+        return False
+    try:
+        return int(call_result, 16) >= 1
+    except (ValueError, TypeError):
+        return False
 
 
 def get_blockchain_metadata() -> Dict[str, Any]:
@@ -194,4 +229,4 @@ def get_blockchain_metadata() -> Dict[str, Any]:
         "explorer_url": SEPOLIA_EXPLORER_BASE,
         "contract_abi": GREEN_BADGE_ABI,
         "testnet_disclaimer": "Sepolia is an Ethereum testnet. Tokens and test ETH have no real-world monetary value."
-    }
+    }

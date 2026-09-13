@@ -2,26 +2,32 @@
 GreenLedger - Optimization API Router
 """
 
-from typing import List, Dict, Any
+from typing import List
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-from schemas.models import OptimizationRecommendation, BeforeAfterComparison, TelemetryInput
-from services.optimization.engine import optimization_service
+from schemas.models import (
+    OptimizationRecommendation,
+    BeforeAfterComparison,
+    TelemetryInput,
+    DeltaEvaluationRequest
+)
+from services.optimization.engine import (
+    optimization_service,
+    CooldownActiveError,
+    DuplicateSubmissionError,
+    UnknownActionError,
+    COOLDOWN_SECONDS
+)
 
 router = APIRouter(prefix="/api/optimization", tags=["Optimization"])
 
 
-class DeltaEvaluationRequest(BaseModel):
-    action_id: str
-    before_telemetry: Dict[str, Any]
-    after_telemetry: Dict[str, Any]
-    user_id: str = "default_user"
-
-
 @router.post("/recommendations", response_model=List[OptimizationRecommendation])
-def get_recommendations(telemetry: Dict[str, Any]):
-    """Analyzes telemetry and returns actionable, safe optimization opportunities."""
-    return optimization_service.analyze_telemetry_for_recommendations(telemetry)
+def get_recommendations(telemetry: TelemetryInput):
+    """
+    Analyzes telemetry and returns actionable, safe optimization opportunities.
+    Body is the raw telemetry payload (agent or demo format).
+    """
+    return optimization_service.analyze_telemetry_for_recommendations(telemetry.model_dump())
 
 
 @router.post("/evaluate-delta", response_model=BeforeAfterComparison)
@@ -29,6 +35,11 @@ def evaluate_optimization_delta(req: DeltaEvaluationRequest):
     """
     Evaluates before vs after telemetry using XGBoost predictions.
     Validates anti-abuse conditions and awards Green Credits for genuine reductions.
+
+    Errors:
+    - 422: non-live telemetry, unknown action, identical snapshots, duplicate submission
+    - 429: cooldown active between cycles
+    - 503: power model unavailable
     """
     try:
         return optimization_service.evaluate_before_after(
@@ -37,5 +48,13 @@ def evaluate_optimization_delta(req: DeltaEvaluationRequest):
             after_telemetry=req.after_telemetry,
             user_id=req.user_id
         )
-    except ValueError as exc:
+    except CooldownActiveError as exc:
+        raise HTTPException(
+            status_code=429,
+            detail=str(exc),
+            headers={"Retry-After": str(COOLDOWN_SECONDS)}
+        ) from exc
+    except (UnknownActionError, DuplicateSubmissionError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc

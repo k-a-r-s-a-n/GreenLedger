@@ -4,7 +4,7 @@ GreenLedger - Marketplace API Router
 
 from typing import Dict, Any
 from fastapi import APIRouter, HTTPException
-from schemas.models import MarketplacePurchaseRequest
+from schemas.models import MarketplacePurchaseRequest, MarketplacePurchaseResponse
 from services.credits.rewards import credit_service
 
 router = APIRouter(prefix="/api/marketplace", tags=["Marketplace"])
@@ -22,10 +22,15 @@ def get_marketplace_catalog(user_id: str = "default_user"):
     }
 
 
-@router.post("/purchase")
+@router.post("/purchase", response_model=MarketplacePurchaseResponse)
 def purchase_item(req: MarketplacePurchaseRequest):
     """Purchases an achievement badge using earned Green Credits."""
     res = credit_service.purchase_badge(req.badge_id, req.user_id or "default_user")
     if not res.get("success"):
         raise HTTPException(status_code=400, detail=res.get("error", "Purchase failed"))
-    return res
+    return MarketplacePurchaseResponse(
+        success=True,
+        message=res.get("message"),
+        badge=res.get("badge"),
+        new_balance=res.get("new_balance")
+    )

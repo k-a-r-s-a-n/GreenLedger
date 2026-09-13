@@ -83,6 +83,13 @@ class OptimizationExecuteRequest(BaseModel):
     params: Optional[Dict[str, Any]] = None
 
 
+class DeltaEvaluationRequest(BaseModel):
+    action_id: str
+    before_telemetry: Dict[str, Any]
+    after_telemetry: Dict[str, Any]
+    user_id: str = "default_user"
+
+
 class BeforeAfterComparison(BaseModel):
     action_id: str
     before_power_w: float
@@ -127,8 +134,27 @@ class MarketplacePurchaseRequest(BaseModel):
     user_id: Optional[str] = "default_user"
 
 
+class MarketplacePurchaseResponse(BaseModel):
+    success: bool
+    message: Optional[str] = None
+    badge: Optional[Badge] = None
+    new_balance: Optional[int] = None
+    error: Optional[str] = None
+
+
 class BlockchainVerifyRequest(BaseModel):
     tx_hash: str
     token_id: int
     badge_id: str
     user_wallet: str
+    user_id: str = "default_user"
+
+
+class MintVerificationResponse(BaseModel):
+    verified: bool
+    tx_hash: str
+    token_id: int
+    badge_id: str
+    user_wallet: str
+    explorer_url: str
+    message: str

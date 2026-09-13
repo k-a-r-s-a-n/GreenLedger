@@ -3,6 +3,7 @@ GreenLedger - Main FastAPI Application
 Coordinates ML inference, carbon tracking, safe optimization, green credits, and Web3 endpoints.
 """
 
+import os
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
@@ -35,10 +36,17 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Configure CORS
+# Configure CORS — origin list is environment-driven (CORS_ORIGINS), never "*"
+# with credentials (browsers reject that combination).
+DEFAULT_CORS_ORIGINS = "http://localhost:3000,http://127.0.0.1:3000,https://greenledger.vercel.app"
+cors_origins = [
+    o.strip().strip('"')
+    for o in os.getenv("CORS_ORIGINS", DEFAULT_CORS_ORIGINS).split(",")
+    if o.strip().strip('"')
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Production and localhost Vercel/Next.js
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -61,7 +69,7 @@ def root_health():
         "status": "online",
         "service": "GreenLedger API",
         "version": "1.0.0",
-        "environment": "production"
+        "environment": os.getenv("ENVIRONMENT", "production")
     }
 
 

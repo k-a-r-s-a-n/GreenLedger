@@ -1,8 +1,10 @@
+// frontend/components/PresentationMode.tsx
 "use client";
 
 import React from "react";
 import { X, Zap, Cloud, Award, Cpu, ShieldCheck, Sparkles } from "lucide-react";
 import { TelemetryData } from "../types";
+import { EarthSphere3D } from "./EarthSphere3D";
 
 interface PresentationModeProps {
   isOpen: boolean;
@@ -23,130 +25,174 @@ export const PresentationMode: React.FC<PresentationModeProps> = ({
   carbonRate,
   credits,
   onQuickOptimize,
-  isOptimized
+  isOptimized,
 }) => {
+  // Handle Escape key to close presentation
+  React.useEffect(() => {
+    if (!isOpen) return;
+    
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+      }
+    };
+    
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-background flex flex-col justify-between p-6 sm:p-10 overflow-y-auto animate-in fade-in duration-300">
+    <div className="fixed inset-0 z-50 bg-black/95 backdrop-blur-2xl flex flex-col justify-between p-6 sm:p-10 overflow-y-auto animate-in fade-in duration-300">
       
       {/* Top Header */}
-      <div className="flex items-center justify-between border-b border-surface-border pb-6">
+      <div className="flex items-center justify-between border-b border-white/10 pb-6">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-cyber-emerald/20 border border-cyber-emerald flex items-center justify-center text-cyber-neon shadow-glow-green">
-            <Sparkles className="w-6 h-6" />
+          <div className="w-10 h-10 rounded-2xl liquid-glass border border-emerald-500/40 flex items-center justify-center text-emerald-400 shadow-glow-green">
+            <Sparkles className="w-5 h-5" />
           </div>
           <div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-              GreenLedger — Live Judge Presentation
+            <h1 className="text-2xl sm:text-3xl font-display tracking-display text-white">
+              GreenLedger — Live Presentation
             </h1>
-            <p className="text-xs sm:text-sm text-cyber-neon font-mono">
-              Real-Time Windows Telemetry & XGBoost Carbon Optimization Protocol
+            <p className="text-xs sm:text-sm text-emerald-300 font-mono">
+              Real-Time Windows Telemetry &amp; XGBoost Carbon Optimization Protocol
             </p>
           </div>
         </div>
 
         <button
           onClick={onClose}
-          className="px-4 py-2 rounded-xl bg-surface-card border border-surface-border text-gray-300 hover:text-white flex items-center gap-2 text-xs font-mono transition"
+          className="px-4 py-2 rounded-xl liquid-glass border border-white/15 text-white/70 hover:text-white flex items-center gap-2 text-xs font-mono transition"
         >
           <X className="w-4 h-4" />
           <span>Exit Presentation</span>
         </button>
       </div>
 
-      {/* Main Pitch Showcase Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 my-8">
+      {/* Center 3D Showcase & Giant Gauges */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 my-6 items-center">
         
-        {/* Giant Gauge 1: Power */}
-        <div className="p-8 rounded-3xl bg-surface-card border border-surface-border flex flex-col items-center justify-center text-center relative overflow-hidden shadow-glow-green/15">
-          <div className="flex items-center gap-2 text-emerald-400 font-mono text-sm uppercase tracking-wider mb-2">
-            <Zap className="w-5 h-5 text-cyber-neon animate-pulse" />
-            Estimated Power Consumption
+        {/* Left Gauges */}
+        <div className="lg:col-span-4 space-y-4">
+          <div className="p-6 rounded-3xl liquid-glass border border-white/10 flex flex-col items-center justify-center text-center relative overflow-hidden shadow-2xl">
+            <span aria-hidden className="glass-sheen absolute inset-0" />
+            <div className="flex items-center gap-2 text-emerald-400 font-mono text-xs uppercase tracking-wider mb-2">
+              <Zap className="w-4 h-4 text-emerald-400 animate-pulse" />
+              Estimated Power Consumption
+            </div>
+            <div className="text-5xl sm:text-6xl font-black font-mono text-white tracking-tight my-1">
+              {estimatedPower === null ? "—" : estimatedPower.toFixed(1)}
+              {estimatedPower !== null && <span className="text-xl text-white/40 ml-2">Watts</span>}
+            </div>
+            <p className="text-[11px] text-white/45 font-mono">
+              XGBoost inference from 6 hardware counters
+            </p>
           </div>
-          <div className="text-6xl sm:text-7xl font-black font-mono text-white tracking-tight my-2">
-            {estimatedPower === null ? "Unavailable" : estimatedPower.toFixed(1)}
-            {estimatedPower !== null && <span className="text-2xl text-gray-400 ml-2">Watts</span>}
+
+          <div className="p-6 rounded-3xl liquid-glass border border-white/10 flex flex-col items-center justify-center text-center relative overflow-hidden shadow-2xl">
+            <span aria-hidden className="glass-sheen absolute inset-0" />
+            <div className="flex items-center gap-2 text-cyan-400 font-mono text-xs uppercase tracking-wider mb-2">
+              <Cloud className="w-4 h-4 text-cyan-400" />
+              Estimated Carbon Footprint
+            </div>
+            <div className="text-5xl sm:text-6xl font-black font-mono text-cyan-300 tracking-tight my-1">
+              {carbonRate === null ? "—" : carbonRate.toFixed(1)}
+              {carbonRate !== null && <span className="text-xl text-white/40 ml-2">g/hr</span>}
+            </div>
+            <p className="text-[11px] text-white/45 font-mono">
+              CO₂e based on 0.385 kg/kWh Grid Factor
+            </p>
           </div>
-          <p className="text-xs text-gray-400 font-mono">
-            Predicted via XGBoost Model; test metrics are shown in Diagnostics when available.
-          </p>
         </div>
 
-        {/* Giant Gauge 2: Carbon */}
-        <div className="p-8 rounded-3xl bg-surface-card border border-surface-border flex flex-col items-center justify-center text-center relative overflow-hidden shadow-glow-cyan/15">
-          <div className="flex items-center gap-2 text-cyan-400 font-mono text-sm uppercase tracking-wider mb-2">
-            <Cloud className="w-5 h-5 text-cyber-cyan" />
-            Estimated Carbon Footprint
+        {/* Center 3D Eco-Sphere */}
+        <div className="lg:col-span-4 flex flex-col items-center justify-center">
+          <div className="w-full max-w-[340px] aspect-square rounded-3xl liquid-glass p-2 border border-white/10 shadow-2xl relative">
+            <EarthSphere3D size={320} interactive={true} />
+            <div className="absolute bottom-3 inset-x-0 text-center pointer-events-none">
+              <span className="text-[10px] font-mono text-emerald-300/80 bg-black/60 px-2.5 py-1 rounded-full border border-emerald-500/30">
+                Interactive Biosphere Orb
+              </span>
+            </div>
           </div>
-          <div className="text-6xl sm:text-7xl font-black font-mono text-cyber-cyan tracking-tight my-2">
-            {carbonRate === null ? "Unavailable" : carbonRate.toFixed(1)}
-            {carbonRate !== null && <span className="text-2xl text-gray-400 ml-2">g/hr</span>}
-          </div>
-          <p className="text-xs text-gray-400 font-mono">
-            CO₂e based on 0.385 kg/kWh Grid Factor
-          </p>
         </div>
 
-        {/* Giant Gauge 3: Green Credits */}
-        <div className="p-8 rounded-3xl bg-surface-card border border-surface-border flex flex-col items-center justify-center text-center relative overflow-hidden shadow-glow-gold/15">
-          <div className="flex items-center gap-2 text-amber-400 font-mono text-sm uppercase tracking-wider mb-2">
-            <Award className="w-5 h-5 text-amber-400" />
-            Verified Green Credits
+        {/* Right Gauge: Green Credits */}
+        <div className="lg:col-span-4 space-y-4">
+          <div className="p-6 rounded-3xl liquid-glass border border-white/10 flex flex-col items-center justify-center text-center relative overflow-hidden shadow-2xl">
+            <span aria-hidden className="glass-sheen absolute inset-0" />
+            <div className="flex items-center gap-2 text-amber-400 font-mono text-xs uppercase tracking-wider mb-2">
+              <Award className="w-4 h-4 text-amber-400" />
+              Verified Green Credits
+            </div>
+            <div className="text-5xl sm:text-6xl font-black font-mono text-amber-300 tracking-tight my-1">
+              {credits === null ? "—" : credits}
+              {credits !== null && <span className="text-xl text-white/40 ml-2">GC</span>}
+            </div>
+            <p className="text-[11px] text-white/45 font-mono">
+              Web3 Redeemable on Ethereum Sepolia
+            </p>
           </div>
-          <div className="text-6xl sm:text-7xl font-black font-mono text-cyber-gold tracking-tight my-2">
-            {credits === null ? "Unavailable" : credits}
-            {credits !== null && <span className="text-2xl text-gray-400 ml-2">GC</span>}
+
+          <div className="p-6 rounded-3xl liquid-glass border border-white/10 flex flex-col items-center justify-center text-center relative">
+            <span aria-hidden className="glass-sheen absolute inset-0" />
+            <div className="text-xs font-mono text-white/50 mb-2">Current System Status</div>
+            <div className="text-lg font-mono text-white font-semibold flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse-dot" />
+              {telemetry.is_live ? "Live Windows 11 Telemetry" : "Windows Agent Offline"}
+            </div>
+            <div className="mt-2 text-[11px] font-mono text-emerald-300">
+              {telemetry.process_count} Processes • {telemetry.cpu_utilization.toFixed(1)}% CPU
+            </div>
           </div>
-          <p className="text-xs text-gray-400 font-mono">
-            Web3 Redeemable on Ethereum Sepolia
-          </p>
         </div>
 
       </div>
 
       {/* Live Hardware Stats Bar */}
-      <div className="p-6 rounded-2xl bg-surface-elevated/40 border border-surface-border flex flex-wrap items-center justify-between gap-6">
-        <div className="flex items-center gap-3">
-          <Cpu className="w-5 h-5 text-emerald-400" />
-          <span className="text-sm font-mono text-white">
-            CPU: <strong>{telemetry.cpu_utilization.toFixed(1)}%</strong>
-          </span>
+      <div className="p-4 rounded-2xl liquid-glass border border-white/10 flex flex-wrap items-center justify-between gap-4 text-xs font-mono">
+        <div className="flex items-center gap-2">
+          <Cpu className="w-4 h-4 text-emerald-400" />
+          <span className="text-white/60">CPU: <strong className="text-white">{telemetry.cpu_utilization.toFixed(1)}%</strong></span>
         </div>
-        <div className="text-sm font-mono text-white">
-          RAM: <strong>{telemetry.memory_usage.toFixed(1)}%</strong>
+        <div className="text-white/60">
+          RAM: <strong className="text-white">{telemetry.memory_usage.toFixed(1)}%</strong>
         </div>
-        <div className="text-sm font-mono text-white">
-          Processes: <strong>{telemetry.process_count}</strong>
+        <div className="text-white/60">
+          Tasks: <strong className="text-white">{telemetry.process_count}</strong>
         </div>
-        <div className="text-sm font-mono text-white">
-          Disk I/O: <strong>{telemetry.disk_io.toFixed(1)} MB/s</strong>
+        <div className="text-white/60">
+          Disk I/O: <strong className="text-white">{telemetry.disk_io.toFixed(1)} MB/s</strong>
         </div>
-        <div className="text-sm font-mono text-emerald-400 flex items-center gap-1.5">
+        <div className="text-emerald-400 flex items-center gap-1.5">
           <ShieldCheck className="w-4 h-4" />
-          <span>{telemetry.is_live ? "Live Windows Hardware" : "Windows Agent Offline"}</span>
+          <span>{telemetry.is_live ? "Agent Stream Active" : "Offline Fallback"}</span>
         </div>
       </div>
 
       {/* Big Interactive Action Button */}
-      <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-4">
+      <div className="mt-6 flex items-center justify-center gap-4">
         <button
           onClick={onQuickOptimize}
           disabled={!telemetry.is_live}
           title={!telemetry.is_live ? "Requires live local agent telemetry" : "Open live optimization controls"}
-          className={`px-10 py-5 rounded-2xl text-base sm:text-lg font-mono font-extrabold flex items-center gap-3 shadow-2xl transition-all duration-300 ${
+          className={`px-8 py-4 rounded-2xl text-sm font-mono font-bold flex items-center gap-3 transition-all duration-300 ${
             isOptimized
-              ? "bg-emerald-950 border border-emerald-500/60 text-emerald-300"
-              : "bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 hover:scale-105 text-white shadow-glow-green"
+              ? "liquid-glass border border-emerald-500/60 text-emerald-300"
+              : "bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white shadow-glow-green"
           }`}
         >
-          <Zap className="w-6 h-6" />
-          <span>{isOptimized ? "Optimization controls" : telemetry.is_live ? "Open optimization controls" : "Requires live telemetry"}</span>
+          <Zap className="w-5 h-5" />
+          <span>
+            {isOptimized ? "Optimization Controls" : telemetry.is_live ? "Open Optimization Engine" : "Requires Live Telemetry"}
+          </span>
         </button>
       </div>
 
       {/* Footer Info */}
-      <div className="pt-6 border-t border-surface-border text-center text-xs font-mono text-gray-500">
+      <div className="pt-4 text-center text-[11px] font-mono text-white/30">
         Presentation Mode — Press Esc or click Exit Presentation to return to normal dashboard
       </div>
 

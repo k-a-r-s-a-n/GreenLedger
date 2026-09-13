@@ -3,49 +3,184 @@
 @tailwind utilities;
 
 :root {
-  --background: #040806;
+  --background: #000000;
   --foreground: #ededed;
+  --glass-border: rgba(255, 255, 255, 0.1);
+  --accent: #10b981;
+  --accent-soft: rgba(16, 185, 129, 0.12);
+}
+
+html {
+  scroll-behavior: smooth;
 }
 
 body {
   color: var(--foreground);
   background: var(--background);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
+  font-family: var(--font-sans), system-ui, -apple-system, "Segoe UI", sans-serif;
   overflow-x: hidden;
+  /* Subtle cinematic vignette over pure black (reference spec base). */
+  background-image: radial-gradient(
+    1200px 600px at 50% -10%,
+    rgba(16, 185, 129, 0.05),
+    transparent 60%
+  );
 }
 
-/* Custom cyber scrollbars */
+::selection {
+  background: rgba(16, 185, 129, 0.3);
+  color: #ffffff;
+}
+
+/* ---- Scrollbars: minimal monochrome ---- */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
-
 ::-webkit-scrollbar-track {
-  background: #09120e;
+  background: #000000;
 }
-
 ::-webkit-scrollbar-thumb {
-  background: #15261f;
+  background: #1f1f1f;
   border-radius: 3px;
-  border: 1px solid rgba(16, 185, 129, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
-
 ::-webkit-scrollbar-thumb:hover {
-  background: #10b981;
+  background: var(--accent);
 }
 
-/* Glassmorphism helpers */
-.glass-panel {
-  background: rgba(14, 26, 21, 0.7);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(16, 185, 129, 0.15);
+/* ---- Accessibility: visible focus ring on all interactive elements ---- */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 6px;
 }
 
-/* Subtle grid background */
-.bg-grid-pattern {
-  background-size: 36px 36px;
-  background-image: 
-    linear-gradient(to right, rgba(16, 185, 129, 0.04) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(16, 185, 129, 0.04) 1px, transparent 1px);
+/* ============================================================
+   LIQUID GLASS — core visual primitive of the design system.
+   Two intensities, per the reference spec. Both blur what is
+   BEHIND the panel, so keep the page background non-uniform
+   (particles / glow fields) for the effect to read.
+   ============================================================ */
+@layer components {
+  .liquid-glass {
+    background: linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.055) 0%,
+      rgba(255, 255, 255, 0.02) 45%,
+      rgba(255, 255, 255, 0.045) 100%
+    );
+    backdrop-filter: blur(18px) saturate(1.35);
+    -webkit-backdrop-filter: blur(18px) saturate(1.35);
+    border: 1px solid var(--glass-border);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06),
+      0 24px 70px rgba(0, 0, 0, 0.65);
+  }
+
+  .liquid-glass-strong {
+    background: linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.09) 0%,
+      rgba(255, 255, 255, 0.035) 45%,
+      rgba(255, 255, 255, 0.07) 100%
+    );
+    backdrop-filter: blur(28px) saturate(1.5);
+    -webkit-backdrop-filter: blur(28px) saturate(1.5);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08),
+      0 24px 70px rgba(0, 0, 0, 0.75);
+  }
+
+  /* Emerald rim for accent-bearing glass panels (live data, CTAs). */
+  .liquid-glass-accent {
+    border-color: rgba(16, 185, 129, 0.28);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06),
+      0 0 40px rgba(16, 185, 129, 0.08),
+      0 24px 70px rgba(0, 0, 0, 0.65);
+  }
+
+  /* Thin top highlight line — the "liquid" surface cue. */
+  .glass-sheen::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    background: linear-gradient(
+      to bottom,
+      rgba(255, 255, 255, 0.07),
+      transparent 22%
+    );
+  }
+
+  /* Faint technical grid for dashboard backdrops (adapted from the
+     agency spec's texture; emerald at near-invisible opacity). */
+  .bg-grid-pattern {
+    background-size: 36px 36px;
+    background-image: linear-gradient(
+        to right,
+        rgba(255, 255, 255, 0.025) 1px,
+        transparent 1px
+      ),
+      linear-gradient(to bottom, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+  }
+
+  /* ---- Skeleton loading: always visibly distinct from real data ---- */
+  .skeleton {
+    position: relative;
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 8px;
+  }
+  .skeleton::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgba(255, 255, 255, 0.09),
+      transparent
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.8s linear infinite;
+  }
+
+  /* Legacy alias kept so unmigrated widgets keep working. */
+  .glass-panel {
+    background: rgba(255, 255, 255, 0.04);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    border: 1px solid var(--glass-border);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+/* ---- Reduced motion: honor the OS setting globally. Framer Motion
+   components additionally gate via useReducedMotion(); these CSS rules
+   cover keyframe utilities and smooth scrolling. ---- */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .skeleton::after {
+    /* Keep skeletons readable without motion: static lighter fill. */
+    animation: none;
+    background: rgba(255, 255, 255, 0.1);
+  }
 }

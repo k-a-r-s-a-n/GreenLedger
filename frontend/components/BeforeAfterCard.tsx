@@ -12,12 +12,40 @@ interface BeforeAfterCardProps {
 }
 
 export const BeforeAfterCard: React.FC<BeforeAfterCardProps> = ({
-  result,
-  beforeTelemetry,
-  afterTelemetry,
+  result: rawResult,
+  beforeTelemetry: rawBefore,
+  afterTelemetry: rawAfter,
   onReset
 }) => {
   const [animatedReduction, setAnimatedReduction] = useState(0);
+
+  // Defensive normalization: coerce undefined/null/NaN numbers to 0 so a
+  // partially-shaped result (e.g. from a locally-evaluated fallback) can
+  // never crash this card with "Cannot read properties of undefined".
+  const n = (v: unknown): number =>
+    typeof v === "number" && Number.isFinite(v) ? v : 0;
+  const result = {
+    ...rawResult,
+    before_power_w: n(rawResult?.before_power_w),
+    after_power_w: n(rawResult?.after_power_w),
+    reduction_watts: n(rawResult?.reduction_watts),
+    reduction_pct: n(rawResult?.reduction_pct),
+    hourly_co2_saved_g: n(rawResult?.hourly_co2_saved_g),
+    credits_awarded: n(rawResult?.credits_awarded),
+    action_hash: rawResult?.action_hash ?? "—",
+  };
+  const beforeTelemetry = {
+    ...rawBefore,
+    cpu_utilization: n(rawBefore?.cpu_utilization),
+    memory_usage: n(rawBefore?.memory_usage),
+    process_count: n(rawBefore?.process_count),
+  };
+  const afterTelemetry = {
+    ...rawAfter,
+    cpu_utilization: n(rawAfter?.cpu_utilization),
+    memory_usage: n(rawAfter?.memory_usage),
+    process_count: n(rawAfter?.process_count),
+  };
 
   useEffect(() => {
     let start = 0;

@@ -187,6 +187,31 @@ export async function switchToSepolia(): Promise<boolean> {
 }
 
 /**
+ * Read-only on-chain check: has this wallet already minted the given token id?
+ * Uses ERC-1155 balanceOf via a read-only browser provider — never sends a
+ * transaction. Used by the badge UI to reflect on-chain state even when the
+ * backend's mint ledger has not recorded the mint yet.
+ */
+export async function checkBadgeMintedOnChain(
+  tokenId: number,
+  walletAddress: string
+): Promise<boolean> {
+  const provider = getEthereumProvider();
+  if (!provider || !CONTRACT_ADDRESS) return false;
+  try {
+    const browserProvider = new ethers.BrowserProvider(provider, "any");
+    const contract = new ethers.Contract(CONTRACT_ADDRESS, GREEN_BADGE_ABI, browserProvider);
+    const balance = await contract.balanceOf(walletAddress, tokenId);
+    // Number() is safe for token balances (max supply 5); avoids BigInt
+    // literals which require an ES2020 compilation target.
+    return Number(balance) > 0;
+  } catch (err) {
+    console.warn("On-chain balance check failed:", err);
+    return false;
+  }
+}
+
+/**
  * Client-side execution of GreenBadge minting function on Sepolia.
  */
 export async function mintBadgeOnChain(
@@ -261,32 +286,3 @@ export async function mintBadgeOnChain(
     };
   }
 }
-
-/**
- * Checks whether a given token ID has already been minted to the user's account on Sepolia.
- */
-export async function checkBadgeMintedOnChain(
-  tokenId: number,
-  userAddress: string
-): Promise<boolean> {
-  const provider = getEthereumProvider();
-  if (!provider || !CONTRACT_ADDRESS || !userAddress) return false;
-
-  try {
-    const browserProvider = new ethers.BrowserProvider(provider, "any");
-    const contract = new ethers.Contract(CONTRACT_ADDRESS, GREEN_BADGE_ABI, browserProvider);
-
-    try {
-      const hasMinted = await contract.hasMintedBadge(tokenId, userAddress);
-      if (hasMinted === true) return true;
-    } catch {
-      // Fallback to balanceOf
-    }
-
-    const balance = await contract.balanceOf(userAddress, tokenId);
-    return Number(balance) > 0;
-  } catch (err) {
-    return false;
-  }
-}
-
