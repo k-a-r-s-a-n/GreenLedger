@@ -37,8 +37,8 @@ Through exploratory data analysis and physical CMOS power considerations, four d
 | **$R^2$ Score** | See `ml/models/metrics.json` | Computed from the current held-out test split |
 | **MAE** | See `ml/models/metrics.json` | Computed from the current held-out test split |
 | **RMSE** | See `ml/models/metrics.json` | Computed from the current held-out test split |
-| **MAPE** | **4.12%** | Mean absolute percentage error |
-| **Inference Latency** | **1.38 ms** | Sub-2ms execution time per sample |
+| **MAPE** | **4.10%** | Current synthetic held-out test split in `ml/models/metrics.json` |
+| **Inference Latency** | Runtime-measured | Captured per inference response, not produced by training |
 
 ---
 

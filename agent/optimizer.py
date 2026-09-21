@@ -26,14 +26,43 @@ class WindowsOptimizer:
             res = subprocess.run(["powercfg", "/getactivescheme"], capture_output=True, text=True)
             if res.returncode == 0:
                 output = res.stdout.strip()
+                import re
+                match = re.search(
+                    r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})",
+                    output,
+                    re.IGNORECASE,
+                )
+                if match:
+                    self._original_power_scheme = match.group(1).lower()
+                    return
                 for key, guid in POWER_SCHEMES.items():
                     if guid.lower() in output.lower():
                         self._original_power_scheme = guid
                         return
-            self._original_power_scheme = POWER_SCHEMES["balanced"]
-        except Exception as e:
-            logger.warning(f"Could not query active power scheme: {e}")
-            self._original_power_scheme = POWER_SCHEMES["balanced"]
+            self._original_power_scheme = None
+        except Exception as exc:
+            logger.warning("Could not query active power scheme: %s", exc)
+            self._original_power_scheme = None
+
+    def _get_active_power_scheme(self) -> Optional[str]:
+        """Return the exact active scheme GUID or None when powercfg is unavailable."""
+        try:
+            res = subprocess.run(["powercfg", "/getactivescheme"], capture_output=True, text=True)
+            if res.returncode != 0:
+                return None
+            import re
+            match = re.search(
+                r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})",
+                res.stdout,
+                re.IGNORECASE,
+            )
+            return match.group(1).lower() if match else None
+        except OSError as exc:
+            logger.warning("Could not query active power scheme: %s", exc)
+            return None
+        except Exception as exc:
+            logger.warning("Could not query active power scheme: %s", exc)
+            return None
 
     def get_optimization_recommendations(self) -> List[Dict[str, Any]]:
         """
@@ -57,8 +86,8 @@ class WindowsOptimizer:
                     "description": "Switches the Windows energy scheme to Power Saver to reduce CPU clock throttling floor and background synchronization.",
                     "action_name": "Switch Power Plan"
                 })
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Could not query recommendations for the active power plan: %s", exc)
 
         # 2. Inspect Running Processes for High-Resource Non-System Candidates
         for p in psutil.process_iter(['pid', 'name', 'cpu_percent', 'memory_percent']):
@@ -103,13 +132,18 @@ class WindowsOptimizer:
         # Action 1: Switch to Power Saver Plan
         if action_id == "enable_power_saver":
             guid = POWER_SCHEMES["power_saver"]
+            previous_scheme = self._get_active_power_scheme()
+            if not previous_scheme:
+                return {"success": False, "error": "Could not read the active power scheme; no change was attempted."}
+            if previous_scheme == guid.lower():
+                return {"success": False, "error": "Power Saver is already active; no change was attempted."}
             cmd = ["powercfg", "/setactive", guid]
             res = subprocess.run(cmd, capture_output=True, text=True)
             if res.returncode == 0:
                 self._applied_actions.append({
                     "action_id": action_id,
                     "type": "power_scheme",
-                    "previous_value": self._original_power_scheme
+                    "previous_value": previous_scheme,
                 })
                 return {"success": True, "message": "Windows Energy Saver profile successfully activated."}
             return {"success": False, "error": f"powercfg returned exit code {res.returncode}: {res.stderr}"}
@@ -126,6 +160,12 @@ class WindowsOptimizer:
             try:
                 proc = psutil.Process(pid)
                 pname = proc.name().lower()
+                expected_name = str(params.get("process_name", "")).strip().lower() if params else ""
+                if expected_name and pname != expected_name:
+                    return {
+                        "success": False,
+                        "error": f"Process changed before execution: expected '{expected_name}', found '{pname}'.",
+                    }
                 
                 # Strict security guardrail
                 if pname in PROTECTED_PROCESSES or pid <= 4:
@@ -146,7 +186,7 @@ class WindowsOptimizer:
                 })
                 return {"success": True, "message": f"Application '{pname}' (PID {pid}) safely closed."}
             except psutil.NoSuchProcess:
-                return {"success": True, "message": f"Process PID {pid} was already closed."}
+                return {"success": False, "error": f"Process PID {pid} no longer exists; no optimization was applied."}
             except psutil.AccessDenied:
                 return {"success": False, "error": f"Access denied terminating process PID {pid}."}
             except Exception as e:
@@ -161,9 +201,21 @@ class WindowsOptimizer:
         logger.info(f"Reversing action: {action_id}")
         
         if action_id == "enable_power_saver":
-            restore_guid = self._original_power_scheme or POWER_SCHEMES["balanced"]
+            previous = next(
+                (
+                    action
+                    for action in reversed(self._applied_actions)
+                    if action["action_id"] == action_id and action["type"] == "power_scheme"
+                ),
+                None,
+            )
+            restore_guid = previous.get("previous_value") if previous else None
+            if not restore_guid:
+                return {"success": False, "error": "The previous power scheme was not captured; rollback was not attempted."}
             res = subprocess.run(["powercfg", "/setactive", restore_guid], capture_output=True, text=True)
             if res.returncode == 0:
+                if previous in self._applied_actions:
+                    self._applied_actions.remove(previous)
                 return {"success": True, "message": "Windows power scheme restored to previous setting."}
             return {"success": False, "error": f"Failed to restore power plan: {res.stderr}"}
             

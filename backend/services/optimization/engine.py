@@ -10,6 +10,7 @@ Anti-abuse posture (documented in docs/api-contract.md):
 
 import hashlib
 import json
+import math
 import time
 from collections import deque
 from typing import Dict, Any, List, Optional
@@ -30,6 +31,9 @@ OPTIMIZABLE_PROCESS_NAMES = {
 MIN_REDUCTION_PERCENT_THRESHOLD = 3.0  # Must achieve at least 3% drop to claim verified reduction
 COOLDOWN_SECONDS = 20  # Minimum 20s cooldown between claimed optimization cycles
 DUPLICATE_HASH_WINDOW = 3  # Recent submissions remembered per user to catch alternating replays
+MIN_MEASUREMENT_SAMPLES = 3
+MAX_WINDOW_CPU_STDDEV = 15.0
+MAX_WINDOW_MEMORY_STDDEV = 15.0
 
 # Safe action whitelist. Only these action IDs (and close_process_<pid>) may be
 # evaluated server-side. Mirrors the agent's enumerated, non-arbitrary actions.
@@ -65,6 +69,30 @@ def _core_telemetry(telemetry: Dict[str, Any]) -> Dict[str, Any]:
         k: v for k, v in telemetry.items()
         if k not in ("timestamp", "is_live", "mode_label")
     }
+
+
+def _measurement_quality(telemetry: Dict[str, Any]) -> Optional[str]:
+    """Reject a noisy measurement window when the client supplied quality metadata."""
+    sample_count = telemetry.get("_sample_count")
+    if sample_count is None:
+        return None
+    if not isinstance(sample_count, int) or sample_count < MIN_MEASUREMENT_SAMPLES:
+        return f"at least {MIN_MEASUREMENT_SAMPLES} stabilized samples are required"
+    for key, limit, label in (
+        ("_cpu_stddev", MAX_WINDOW_CPU_STDDEV, "CPU"),
+        ("_memory_stddev", MAX_WINDOW_MEMORY_STDDEV, "memory"),
+    ):
+        value = telemetry.get(key)
+        if value is not None and (not isinstance(value, (int, float)) or not math.isfinite(value) or value > limit):
+            return f"{label} varied too much during the measurement window"
+    return None
+
+
+def _power_meter_value(telemetry: Dict[str, Any]) -> Optional[float]:
+    value = telemetry.get("power_meter_raw")
+    if isinstance(value, (int, float)) and math.isfinite(value) and value > 0:
+        return float(value)
+    return None
 
 
 class OptimizationEngineService:
@@ -138,6 +166,11 @@ class OptimizationEngineService:
         if not before_telemetry.get("is_live") or not after_telemetry.get("is_live"):
             raise ValueError("Verified Green Credits require live before and after telemetry.")
 
+        for label, telemetry in (("before", before_telemetry), ("after", after_telemetry)):
+            quality_error = _measurement_quality(telemetry)
+            if quality_error:
+                raise ValueError(f"{label.capitalize()} telemetry is not stable: {quality_error}.")
+
         now = time.time()
         last_time = self._last_optimization_time.get(user_id, 0.0)
 
@@ -179,8 +212,23 @@ class OptimizationEngineService:
         reduction_watts = max(0.0, p_before - p_after)
         reduction_pct = (reduction_watts / p_before * 100.0) if p_before > 0 else 0.0
 
+        # When the protected collector exposes a Windows Power Meter value, it
+        # is an independent signal. Do not award a model-based saving when the
+        # physical counter contradicts the model direction.
+        measured_before = _power_meter_value(before_telemetry)
+        measured_after = _power_meter_value(after_telemetry)
+        if measured_before is not None and measured_after is not None:
+            measured_reduction = measured_before - measured_after
+            if reduction_watts > 0 and measured_reduction < 0:
+                reduction_watts = 0.0
+                reduction_pct = 0.0
+
         # 5. Compute carbon savings
-        savings = calculate_savings(p_before, p_after, duration_hours=1.0)
+        savings = calculate_savings(
+            p_before,
+            p_before - reduction_watts,
+            duration_hours=1.0,
+        )
 
         # 6. Record the accepted cycle
         self._last_optimization_time[user_id] = now

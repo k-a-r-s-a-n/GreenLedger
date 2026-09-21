@@ -15,9 +15,8 @@
  * Honest gating: process-level actions require the live Windows agent
  * (real PIDs only exist in live telemetry). Power Saver and Reduce
  * Brightness execute for real on this machine through Next.js routes
- * (powercfg / WMI) even when the agent is offline. When the backend is
- * unreachable — or rejects demo telemetry with 422 — results are evaluated
- * locally and never reported as server-verified credits (credits stay 0).
+ * (powercfg / WMI) even when the agent is offline. Demo telemetry is never
+ * eligible for execution or server-verified credits.
  * 429 cooldowns surface a live countdown from Retry-After.
  */
 import React, { useState } from "react";
@@ -44,8 +43,8 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   fetchRecommendations,
   fetchTelemetry,
-  fetchDemoTelemetry,
   executeOptimizationAction,
+  rollbackOptimizationAction,
   evaluateOptimizationDelta,
   ApiError,
 } from "../../lib/api";
@@ -129,24 +128,65 @@ function buildLocalRecommendations(
     title: "Reduce Screen Brightness to 40%",
     category: "display",
     priority: "medium",
-    estimated_power_reduction_pct: 18,
+    estimated_power_reduction_pct: null,
     reversible: true,
-    description: "Display backlighting accounts for up to 30% of laptop draw. Dims display to energy-efficient 40%.",
+    description: "Requests a lower display brightness. Any power reduction must be measured after execution.",
     action_name: "Reduce Brightness",
   });
 
   return recommendations;
 }
 
-/** Mirrors api.ts predictPower's calibrated model so both paths agree. */
-function modeledWatts(t: TelemetryData, brightnessLevel?: number): number {
-  return (
-    12.5 +
-    ((t.cpu_utilization ?? 15) / 100) * 35 +
-    ((t.memory_usage ?? 40) / 100) * 6 +
-    Math.min(10, (t.disk_io ?? 5) * 0.4) +
-    (brightnessLevel != null ? brightnessLevel * 0.06 : 0)
-  );
+type WindowTelemetry = TelemetryData & {
+  _sample_count: number;
+  _cpu_stddev: number;
+  _memory_stddev: number;
+};
+
+async function collectLiveTelemetryWindow(): Promise<WindowTelemetry> {
+  const samples: TelemetryData[] = [];
+  for (let index = 0; index < 3; index += 1) {
+    samples.push(await fetchTelemetry());
+    if (index < 2) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+  }
+  const median = (values: number[]) => {
+    if (values.length === 0) return 0;
+    const ordered = [...values].sort((a, b) => a - b);
+    const middle = Math.floor(ordered.length / 2);
+    return ordered.length % 2 === 0
+      ? (ordered[middle - 1] + ordered[middle]) / 2
+      : ordered[middle];
+  };
+  const standardDeviation = (values: number[]) => {
+    const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
+    return Math.sqrt(
+      values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / values.length
+    );
+  };
+  const first = samples[0];
+  return {
+    ...first,
+    timestamp: samples[samples.length - 1].timestamp,
+    cpu_utilization: median(samples.map((sample) => sample.cpu_utilization)),
+    memory_usage: median(samples.map((sample) => sample.memory_usage)),
+    disk_io: median(samples.map((sample) => sample.disk_io)),
+    process_count: Math.round(median(samples.map((sample) => sample.process_count))),
+    thread_count: Math.round(
+      median(samples.map((sample) => sample.thread_count ?? first.thread_count ?? 1))
+    ),
+    uptime: median(samples.map((sample) => sample.uptime)),
+    power_meter_raw: (() => {
+      const values = samples
+        .map((sample) => sample.power_meter_raw)
+        .filter((value): value is number => typeof value === "number");
+      return values.length > 0 ? median(values) : first.power_meter_raw;
+    })(),
+    _sample_count: samples.length,
+    _cpu_stddev: standardDeviation(samples.map((sample) => sample.cpu_utilization)),
+    _memory_stddev: standardDeviation(samples.map((sample) => sample.memory_usage)),
+  };
 }
 
 export default function OptimizePage() {
@@ -176,101 +216,28 @@ export default function OptimizePage() {
 
   const executeMutation = useMutation({
     mutationFn: async (opportunity: OptimizationOpportunity) => {
-      // 1. BEFORE snapshot. In live mode take a fresh one from the agent;
-      //    in demo mode the already-fetched demo telemetry stands in
-      //    (fetchTelemetry only talks to the agent and would throw).
-      let before: TelemetryData;
-      if (telemetry) {
-        before = telemetry;
-      } else if (isLive) {
-        before = await fetchTelemetry();
-      } else {
+      if (!isLive) {
         throw new ApiError(
           0,
-          "No telemetry snapshot available to verify against. Load a snapshot first."
+          "Optimization execution requires live Windows telemetry; demo snapshots cannot produce verified savings."
         );
       }
-      // 2. Execute. In demo mode, process-level actions run as labelled
-      //    simulations (demo PIDs are not real); the two hardware actions
-      //    execute for real via Next.js routes even without the agent.
-      //    In live mode the agent handles process/power-plan actions.
-      const isProcessAction = opportunity.id.startsWith("close_process_");
-      const executed =
-        !isLive && isProcessAction
-          ? true // labelled simulation — demo telemetry transitions to "optimized"
-          : await executeOptimizationAction(
-              opportunity.id,
-              { pid: opportunity.pid },
-              isLive
-            );
+      const before = await collectLiveTelemetryWindow();
+      const executed = await executeOptimizationAction(
+        opportunity.id,
+        { pid: opportunity.pid, process_name: opportunity.process_name },
+        true
+      );
       if (!executed) {
-        throw new ApiError(
-          0,
-          isLive
-            ? "The optimization action did not execute — the local action service did not respond."
-            : "The local Windows agent did not execute the action. Process-level optimization requires the live agent."
-        );
+        throw new ApiError(0, "The optimization action did not execute.");
       }
-      // 3. Let the OS settle (power plan switch, brightness change, process
-      //    close) before the AFTER snapshot — 1.5s, matches backend's expectations.
-      await new Promise((r) => setTimeout(r, 1500));
-      // 4. AFTER snapshot. Demo mode refreshes the demo endpoint (scenario
-      //    "optimized") so the two snapshots can legitimately differ.
-      const after = isLive
-        ? await fetchTelemetry()
-        : await fetchDemoTelemetry("optimized");
-      // 5. Server-side verification + credit award.
-      let comparison: BeforeAfterResult;
-      try {
-        comparison = await evaluateOptimizationDelta(
-          opportunity.id,
-          before,
-          after
-        );
-      } catch (deltaErr) {
-        // Cooldown (429) is real flow state — surface it, don't mask it.
-        if (deltaErr instanceof ApiError && deltaErr.status === 429) throw deltaErr;
-        // Backend (:8000) unreachable or 422-rejected the demo telemetry —
-        // evaluate locally. The result MUST match the BeforeAfterComparison
-        // contract shape; BeforeAfterCard renders these fields directly.
-        // Credits are NOT fabricated: nothing is claimed server-side.
-        let beforeBrightness: number | undefined;
-        let afterBrightness: number | undefined;
-        if (opportunity.id === "reduce_brightness") {
-          afterBrightness = 40; // the target the route dims to
-          if (isLive) {
-            // Live mode: the brightness route remembers the real pre-dim level.
-            try {
-              const probe = await fetch("/api/brightness");
-              const probeBody = await probe.json();
-              if (typeof probeBody?.original_level === "number") {
-                beforeBrightness = probeBody.original_level;
-              }
-            } catch {
-              /* probe offline — fall back to the 100% default below */
-            }
-          }
-          if (beforeBrightness == null) beforeBrightness = 100;
-        }
-        const beforeWatts = Number(modeledWatts(before, beforeBrightness).toFixed(1));
-        const afterWatts = Number(modeledWatts(after, afterBrightness).toFixed(1));
-        const reduction = Math.max(0, Number((beforeWatts - afterWatts).toFixed(1)));
-        const reductionPct =
-          beforeWatts > 0 ? Number(((reduction / beforeWatts) * 100).toFixed(1)) : 0;
-        comparison = {
-          action_id: opportunity.id,
-          before_power_w: beforeWatts,
-          after_power_w: afterWatts,
-          reduction_watts: reduction,
-          reduction_pct: reductionPct,
-          hourly_co2_saved_g: Number((reduction * 0.385).toFixed(2)),
-          credits_awarded: 0,
-          new_credit_balance: 0,
-          streak_days: 0,
-          action_hash: "local-eval-unverified",
-          unlocked_badge: null,
-        };
-      }
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      const after = await collectLiveTelemetryWindow();
+      const comparison: BeforeAfterResult = await evaluateOptimizationDelta(
+        opportunity.id,
+        before,
+        after
+      );
       return { comparison, before, after };
     },
     onSuccess: ({ comparison, before, after }) => {
@@ -288,6 +255,19 @@ export default function OptimizePage() {
         setFlowError({
           message: `Cooldown active between optimization cycles — try again in ${seconds}s.`,
           retryAfterSeconds: seconds,
+        });
+
+        const rollbackMutation = useMutation({
+          mutationFn: (actionId: string) => rollbackOptimizationAction(actionId, isLive),
+          onSuccess: () => {
+            setFlowError(null);
+            setResult(null);
+          },
+          onError: (err) => {
+            setFlowError({
+              message: err instanceof Error ? err.message : "Rollback failed.",
+            });
+          },
         });
       } else {
         setFlowError({
@@ -382,6 +362,12 @@ export default function OptimizePage() {
                 beforeTelemetry={result.before}
                 afterTelemetry={result.after}
                 onReset={closeResult}
+                onRollback={() => rollbackMutation.mutate(result.comparison.action_id)}
+                rollbackPending={rollbackMutation.isPending}
+                rollbackAvailable={
+                  result.comparison.action_id === "enable_power_saver" ||
+                  result.comparison.action_id === "reduce_brightness"
+                }
               />
             </motion.section>
           )}
@@ -413,13 +399,13 @@ export default function OptimizePage() {
             <div className="relative shrink-0">
               <Button
                 onClick={() => openModal(powerSaver)}
-                disabled={!telemetry}
+                disabled={!telemetry || !isLive}
                 loading={executeMutation.isPending}
                 title={
                   isLive
                     ? "Enable Windows Power Saver"
                     : telemetry
-                      ? "Switches the real power plan via powercfg — evaluated locally in demo mode"
+                      ? "Live Windows telemetry is required before changing the power plan"
                       : "Load a telemetry snapshot first"
                 }
               >
@@ -446,7 +432,7 @@ export default function OptimizePage() {
               <span className="px-2 py-0.5 rounded text-[10px] font-mono uppercase tracking-wider border border-cyan-500/40 text-cyan-300 bg-cyan-500/10">
                 Display Hardware
               </span>
-              <span className="text-xs font-mono text-emerald-300">~18% expected reduction</span>
+              <span className="text-xs font-mono text-white/45">Measured after execution</span>
             </div>
             <h2 className="text-base font-semibold tracking-tight-2 text-white flex items-center gap-2 mt-2">
               <Zap className="w-4 h-4 text-cyan-400" aria-hidden />
@@ -465,20 +451,20 @@ export default function OptimizePage() {
                   title: "Reduce Screen Brightness to 40%",
                   category: "display",
                   priority: "medium",
-                  estimated_power_reduction_pct: 18,
+                  estimated_power_reduction_pct: null,
                   reversible: true,
                   description: "Display backlighting accounts for up to 30% of system draw. Dims display to energy-efficient 40%.",
                   action_name: "Dim Display to 40%",
                 };
                 openModal(brightnessOpp);
               }}
-              disabled={!telemetry}
+              disabled={!telemetry || !isLive}
               loading={executeMutation.isPending}
               title={
                 isLive
                   ? "Dim the display to 40% via Windows WMI"
                   : telemetry
-                    ? "Dims this display via Windows WMI — evaluated locally in demo mode"
+                    ? "Live Windows telemetry is required before changing brightness"
                     : "Load a telemetry snapshot first"
               }
               className="bg-gradient-to-r from-cyan-600 to-emerald-600 hover:from-cyan-500 hover:to-emerald-500"
@@ -579,6 +565,7 @@ export default function OptimizePage() {
                       <Button
                         size="sm"
                         onClick={() => openModal(rec)}
+                        disabled={!isLive && rec.id.startsWith("close_process_")}
                         variant="primary"
                         title={
                           isLive

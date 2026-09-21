@@ -77,8 +77,8 @@ Trained using `ml/scripts/train.py` on 10,000 samples with hyperparameter cross-
 | **$R^2$ Score** | See `ml/models/metrics.json` | Computed from the current held-out test split |
 | **Mean Absolute Error (MAE)** | See `ml/models/metrics.json` | Computed from the current held-out test split |
 | **Root Mean Squared Error (RMSE)** | See `ml/models/metrics.json` | Computed from the current held-out test split |
-| **Percentage Error (MAPE)** | **4.12%** | Mean absolute percentage deviation |
-| **Inference Latency** | **1.38 ms** | Sub-2ms real-time execution |
+| **Percentage Error (MAPE)** | **4.10%** | Current synthetic held-out test split in `ml/models/metrics.json` |
+| **Inference Latency** | Runtime-measured | Recorded per request; not a training metric |
 
 ### Model Artifacts Saved:
 - `ml/models/power_model.json` (Trained XGBoost Regressor)
@@ -105,7 +105,7 @@ The native agent collects live hardware counters via `psutil`, PowerShell CIM, a
 Optimization actions adhere strictly to non-destructive safety guardrails:
 - **Never Kills System Processes**: `explorer.exe`, `svchost.exe`, `dwm.exe`, `csrss.exe`, and antivirus services are blacklisted.
 - **Reversible Power Schemes**: Swapping to Windows Power Saver scheme preserves previous power plan GUID for instant one-click rollback.
-- **Explainable & User-Approved**: Every recommendation displays the expected Wattage drop, process justification, and requires explicit confirmation.
+- **Explainable & User-Approved**: Every recommendation displays its justification and requires explicit confirmation. Power reduction is measured after execution; no fixed saving is promised.
 
 ### Before / After Verification Flow:
 1. Capture `Before` telemetry state $\to$ compute $P_{\text{before}}$ via XGBoost.

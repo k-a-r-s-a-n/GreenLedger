@@ -19,11 +19,9 @@ import {
   UserCreditState,
   BadgeItem,
 } from "../types";
+import { AGENT_BASE_URL, BACKEND_BASE_URL } from "./config";
 
-export const AGENT_BASE_URL =
-  process.env.NEXT_PUBLIC_LOCAL_AGENT_URL || "http://127.0.0.1:8765";
-export const BACKEND_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+export { AGENT_BASE_URL, BACKEND_BASE_URL } from "./config";
 
 const DEV = process.env.NODE_ENV !== "production";
 
@@ -63,8 +61,18 @@ async function request<T>(
       ...rest,
       signal: timeoutMs ? AbortSignal.timeout(timeoutMs) : undefined,
     });
-  } catch {
-    throw new ApiError(0, `${endpoint} is unreachable.`);
+  } catch (error) {
+    const reason =
+      error instanceof DOMException && error.name === "AbortError"
+        ? "request timed out"
+        : "network error or blocked by CORS";
+    const message = `Unable to reach ${endpoint}: ${reason}.`;
+    console.error("[GreenLedger] API request failed:", {
+      endpoint,
+      reason,
+      error,
+    });
+    throw new ApiError(0, message);
   }
 
   if (!res.ok) {
@@ -83,7 +91,16 @@ async function request<T>(
     );
   }
 
-  return res.json() as Promise<T>;
+  try {
+    return (await res.json()) as T;
+  } catch (error) {
+    const message = `Backend returned invalid JSON for ${endpoint}.`;
+    console.error("[GreenLedger] API response parse failed:", {
+      endpoint,
+      error,
+    });
+    throw new ApiError(0, message);
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -156,52 +173,20 @@ export async function fetchDemoTelemetry(
 
 /** POST /api/ml/predict — 422 when core telemetry missing, 503 model missing. */
 export async function predictPower(telemetry: TelemetryData): Promise<PredictionResult> {
-  try {
-    const result = await request<PredictionResult>(
-      `${BACKEND_BASE_URL}/api/ml/predict`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(telemetry),
-        timeoutMs: 3000,
-      }
-    );
-    if (typeof result?.estimated_power_w === "number") {
-      return result;
+  const result = await request<PredictionResult>(
+    "/api/ml/predict",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(telemetry),
+      timeoutMs: 3000,
     }
-  } catch (err) {
-    // If backend is still starting or model is initializing, provide calibrated CMOS power estimation
-    const cpu = telemetry.cpu_utilization ?? 15;
-    const mem = telemetry.memory_usage ?? 40;
-    const disk = telemetry.disk_io ?? 5;
-    // Calibrated TDP: Base idle ~12W + CPU dynamic (up to ~35W) + RAM/Disk (~8W)
-    const fallbackWatts = Number((12.5 + (cpu / 100) * 35.0 + (mem / 100) * 6.0 + Math.min(10, disk * 0.4)).toFixed(1));
-    
-    return {
-      estimated_power_w: fallbackWatts,
-      model_version: "1.0.0-calibrated",
-      warnings: ["Backend model engine connecting... physics CMOS calibration active."],
-      inference_latency_ms: 1.4,
-      feature_contributions: {
-        cpu_utilization: Number(((cpu / 100) * 35.0).toFixed(2)),
-        memory_usage: Number(((mem / 100) * 6.0).toFixed(2)),
-        base_draw: 12.5,
-        disk_io: Number((Math.min(10, disk * 0.4)).toFixed(2)),
-      },
-      is_out_of_distribution: false,
-    };
+  );
+  if (typeof result?.estimated_power_w !== "number") {
+    warnContractMismatch("POST /api/ml/predict", "missing estimated_power_w");
+    throw new ApiError(502, "Power model returned no estimate.");
   }
-  
-  // Default fallback if unhandled
-  const cpu = telemetry.cpu_utilization ?? 20;
-  return {
-    estimated_power_w: Number((14.0 + (cpu / 100) * 32.0).toFixed(1)),
-    model_version: "1.0.0",
-    warnings: [],
-    inference_latency_ms: 1.2,
-    feature_contributions: { cpu_utilization: 18.5, base_draw: 12.0 },
-    is_out_of_distribution: false,
-  };
+  return result;
 }
 
 /* ------------------------------------------------------------------ */
@@ -228,32 +213,15 @@ export async function calculateCarbon(
   powerWatts: number,
   durationHours = 1
 ): Promise<CarbonResponse> {
-  const defaultIntensity = 0.385;
-  try {
-    return await request<CarbonResponse>(`${BACKEND_BASE_URL}/api/carbon/calculate`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        power_watts: powerWatts,
-        duration_hours: durationHours,
-        carbon_intensity_kg_per_kwh: defaultIntensity,
-      }),
-    });
-  } catch (err) {
-    const energyKwh = (powerWatts * durationHours) / 1000;
-    const kgCo2 = energyKwh * defaultIntensity;
-    const gCo2 = kgCo2 * 1000;
-    return {
+  return request<CarbonResponse>("/api/carbon/calculate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
       power_watts: powerWatts,
       duration_hours: durationHours,
-      energy_kwh: Number(energyKwh.toFixed(4)),
-      carbon_intensity_kg_per_kwh: defaultIntensity,
-      emissions_g_co2: Number(gCo2.toFixed(2)),
-      emissions_kg_co2: Number(kgCo2.toFixed(4)),
-      trees_offset_equivalent: Number((kgCo2 / 21.77).toFixed(4)),
-      car_km_equivalent: Number((kgCo2 / 0.12).toFixed(2)),
-    };
-  }
+      carbon_intensity_kg_per_kwh: 0.385,
+    }),
+  });
 }
 
 /* ------------------------------------------------------------------ */
@@ -339,7 +307,7 @@ function localRecommendations(telemetry: TelemetryData): OptimizationOpportunity
     title: "Reduce Screen Brightness to 40%",
     category: "display",
     priority: "medium",
-    estimated_power_reduction_pct: 18,
+    estimated_power_reduction_pct: null,
     reversible: true,
     description: "Display backlighting accounts for up to 30% of laptop draw. Dims display to energy-efficient 40%.",
     action_name: "Reduce Brightness",
@@ -359,7 +327,7 @@ export async function fetchRecommendations(
 ): Promise<OptimizationOpportunity[]> {
   try {
     const recs = await request<OptimizationOpportunity[]>(
-      `${BACKEND_BASE_URL}/api/optimization/recommendations`,
+      "/api/backend/optimization/recommendations",
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -411,7 +379,7 @@ export async function executeOptimizationAction(
   if (actionId === "enable_power_saver") {
     if (isAgentLive) {
       try {
-        const res = await fetch(`${AGENT_BASE_URL}/optimization/execute`, {
+        const res = await fetch("/api/agent/optimization/execute", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ action_id: actionId, params }),
@@ -460,16 +428,52 @@ export async function executeOptimizationAction(
 
   if (!isAgentLive) return false;
   try {
-    const res = await fetch(`${AGENT_BASE_URL}/optimization/execute`, {
+    const res = await fetch("/api/agent/optimization/execute", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action_id: actionId, params }),
       signal: AbortSignal.timeout(4000),
     });
-    return res.ok;
-  } catch {
+    if (res.ok) return true;
+    const body = await res.json().catch(() => null);
+    throw new ApiError(
+      res.status,
+      body?.detail ?? body?.error ?? "The local agent rejected the process action."
+    );
+  } catch (err) {
+    if (err instanceof ApiError) throw err;
     return false;
   }
+}
+
+/** Restores the exact state captured by a reversible optimization action. */
+export async function rollbackOptimizationAction(
+  actionId: string,
+  isAgentLive: boolean
+): Promise<void> {
+  if (actionId === "reduce_brightness") {
+    const res = await fetch("/api/brightness", { method: "PUT" });
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      throw new ApiError(res.status, body?.error ?? "Brightness rollback failed.");
+    }
+    return;
+  }
+  if (actionId === "enable_power_saver") {
+    if (!isAgentLive) throw new ApiError(0, "Power-plan rollback requires the live Windows agent.");
+    const res = await fetch("/api/agent/optimization/undo", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action_id: actionId }),
+      signal: AbortSignal.timeout(4000),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      throw new ApiError(res.status, body?.detail ?? "Power-plan rollback failed.");
+    }
+    return;
+  }
+  throw new ApiError(422, "This process action cannot be restored automatically.");
 }
 
 /**
@@ -484,7 +488,7 @@ export async function evaluateOptimizationDelta(
   userId: string = "default_user"
 ): Promise<BeforeAfterResult> {
   return request<BeforeAfterResult>(
-    `${BACKEND_BASE_URL}/api/optimization/evaluate-delta`,
+    "/api/backend/optimization/evaluate-delta",
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -506,9 +510,36 @@ export async function evaluateOptimizationDelta(
 export async function fetchCreditState(
   userId: string = "default_user"
 ): Promise<UserCreditState> {
-  return request<UserCreditState>(
+  const state = await request<UserCreditState>(
     `${BACKEND_BASE_URL}/api/credits/state?user_id=${encodeURIComponent(userId)}`
   );
+  const requiredFields: (keyof UserCreditState)[] = [
+    "user_id",
+    "credit_balance",
+    "lifetime_reduction_g_co2",
+    "lifetime_energy_saved_kwh",
+    "total_optimizations",
+    "current_streak_days",
+    "rank_title",
+    "recent_transactions",
+  ];
+  const missingFields = requiredFields.filter(
+    (field) => !(field in Object(state))
+  );
+  if (missingFields.length > 0 || !Array.isArray(state.recent_transactions)) {
+    const detail =
+      missingFields.length > 0
+        ? `missing fields: ${missingFields.join(", ")}`
+        : "recent_transactions is not an array";
+    const message = `Backend returned an invalid credit state (${detail}).`;
+    console.error("[GreenLedger] Credit state contract mismatch:", {
+      endpoint: "/api/credits/state",
+      detail,
+      response: state,
+    });
+    throw new ApiError(0, message);
+  }
+  return state;
 }
 
 /** GET /api/badges/list — 5-badge catalog with per-user unlock state. */

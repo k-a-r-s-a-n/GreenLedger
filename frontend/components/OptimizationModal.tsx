@@ -93,7 +93,12 @@ export const OptimizationModal: React.FC<OptimizationModalProps> = ({
             Cancel
           </button>
           <button
-            onClick={() => onConfirm(opportunity.id, { pid: opportunity.pid })}
+            onClick={() =>
+              onConfirm(opportunity.id, {
+                pid: opportunity.pid,
+                process_name: opportunity.process_name,
+              })
+            }
             disabled={isExecuting}
             className="px-5 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-mono font-bold shadow-glow-green flex items-center gap-1.5 transition"
           >

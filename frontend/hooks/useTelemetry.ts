@@ -112,6 +112,8 @@ export function usePowerPrediction(telemetry: TelemetryData | null) {
     queryKey: qk.prediction(telemetry?.timestamp ?? null),
     enabled: telemetry !== null,
     staleTime: 0,
+    retry: 2,
+    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 4000),
     queryFn: () => predictPower(telemetry as TelemetryData),
   });
 }

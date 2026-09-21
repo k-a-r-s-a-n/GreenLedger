@@ -50,9 +50,9 @@ export const LusionScrollHero: React.FC = () => {
         {/* Cinematic Headline with Lusion-like Scale & Depth */}
         <motion.div
           style={{ opacity: textOpacity, y: textY }}
-          className="text-center max-w-4xl mx-auto space-y-4"
+          className="w-full max-w-5xl mx-auto space-y-4 text-center"
         >
-          <h1 className="font-display text-5xl sm:text-7xl lg:text-8xl tracking-display text-white font-extrabold uppercase leading-[0.98]">
+          <h1 className="font-display text-4xl sm:text-6xl lg:text-7xl tracking-display text-white font-extrabold uppercase leading-[0.98]">
             Computing, <br />
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400">
               Made Accountable.
@@ -118,4 +118,3 @@ export const LusionScrollHero: React.FC = () => {
     </div>
   );
 };
-

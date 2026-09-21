@@ -65,12 +65,12 @@ export const EarthSphere3D: React.FC<EarthSphere3DProps> = ({
         // 2. WebGL Renderer
         const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
         renderer.setSize(width, height);
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
         mount.innerHTML = "";
         mount.appendChild(renderer.domElement);
 
         // 3. Globe Outer Hologram (Segmented Wireframe Sphere)
-        const globeGeo = new THREE.SphereGeometry(1.6, 28, 28);
+        const globeGeo = new THREE.SphereGeometry(1.6, 20, 20);
         const globeMat = new THREE.MeshBasicMaterial({
           color: 0x10b981,
           wireframe: true,
@@ -81,7 +81,7 @@ export const EarthSphere3D: React.FC<EarthSphere3DProps> = ({
         scene.add(globe);
 
         // 4. Secondary Geodesic Hex Shield
-        const icosaGeo = new THREE.IcosahedronGeometry(1.65, 2);
+        const icosaGeo = new THREE.IcosahedronGeometry(1.65, 1);
         const icosaMat = new THREE.MeshBasicMaterial({
           color: 0x06b6d4,
           wireframe: true,
@@ -92,7 +92,7 @@ export const EarthSphere3D: React.FC<EarthSphere3DProps> = ({
         scene.add(icosa);
 
         // 5. Inner Bioluminescent Core
-        const coreGeo = new THREE.SphereGeometry(0.85, 24, 24);
+        const coreGeo = new THREE.SphereGeometry(0.85, 16, 16);
         const coreMat = new THREE.MeshBasicMaterial({
           color: 0x059669,
           transparent: true,
@@ -102,7 +102,7 @@ export const EarthSphere3D: React.FC<EarthSphere3DProps> = ({
         scene.add(innerCore);
 
         // 6. Orbital Carbon / Telemetry Satellites (Points)
-        const nodeCount = 65;
+        const nodeCount = 40;
         const nodeGeo = new THREE.BufferGeometry();
         const nodePositions = new Float32Array(nodeCount * 3);
         const nodeSizes = new Float32Array(nodeCount);
@@ -130,7 +130,7 @@ export const EarthSphere3D: React.FC<EarthSphere3DProps> = ({
         scene.add(nodes);
 
         // 7. Equatorial Planetary Ring
-        const ringGeo = new THREE.RingGeometry(2.1, 2.35, 64);
+        const ringGeo = new THREE.RingGeometry(2.1, 2.35, 48);
         const ringMat = new THREE.MeshBasicMaterial({
           color: 0x10b981,
           side: THREE.DoubleSide,
@@ -143,7 +143,7 @@ export const EarthSphere3D: React.FC<EarthSphere3DProps> = ({
         scene.add(ring);
 
         // Secondary subtle outer ring
-        const outerRingGeo = new THREE.RingGeometry(2.6, 2.65, 64);
+        const outerRingGeo = new THREE.RingGeometry(2.6, 2.65, 48);
         const outerRingMat = new THREE.MeshBasicMaterial({
           color: 0x22d3ee,
           side: THREE.DoubleSide,
@@ -303,7 +303,7 @@ export const EarthSphere3D: React.FC<EarthSphere3DProps> = ({
       {/* 3D WebGL Container */}
       <div
         ref={mountRef}
-        className="relative w-full h-full flex items-center justify-center cursor-grab active:cursor-grabbing"
+        className="relative w-full h-full flex items-center justify-center cursor-grab active:cursor-grabbing [contain:layout_paint]"
       />
 
       {/* Control overlay */}
@@ -331,4 +331,3 @@ export const EarthSphere3D: React.FC<EarthSphere3DProps> = ({
     </div>
   );
 };
-

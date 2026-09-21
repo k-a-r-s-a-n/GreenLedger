@@ -131,3 +131,30 @@ def test_evaluate_delta_rejects_alternating_replay():
     replay = _evaluate(user_id, a_before, a_after)
     assert replay.status_code == 422
     assert "Duplicate" in replay.json()["detail"]
+
+
+def test_evaluate_delta_rejects_noisy_measurement_window():
+    before = _live_telemetry("normal")
+    after = _live_telemetry("optimized")
+    before.update({"_sample_count": 5, "_cpu_stddev": 20.0, "_memory_stddev": 1.0})
+    after.update({"_sample_count": 5, "_cpu_stddev": 1.0, "_memory_stddev": 1.0})
+
+    response = _evaluate("noisy_window_user", before, after)
+
+    assert response.status_code == 422
+    assert "not stable" in response.json()["detail"]
+
+
+def test_meter_contradiction_cannot_claim_model_savings():
+    before = _live_telemetry("normal")
+    after = _live_telemetry("optimized")
+    before["power_meter_raw"] = 20.0
+    after["power_meter_raw"] = 25.0
+
+    response = _evaluate("meter_contradiction_user", before, after)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["reduction_watts"] == 0.0
+    assert data["hourly_co2_saved_g"] == 0.0
+    assert data["credits_awarded"] == 5

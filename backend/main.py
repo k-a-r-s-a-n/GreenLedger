@@ -36,14 +36,21 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Configure CORS — origin list is environment-driven (CORS_ORIGINS), never "*"
-# with credentials (browsers reject that combination).
-DEFAULT_CORS_ORIGINS = "http://localhost:3000,http://127.0.0.1:3000,https://greenledger.vercel.app"
-cors_origins = [
-    o.strip().strip('"')
-    for o in os.getenv("CORS_ORIGINS", DEFAULT_CORS_ORIGINS).split(",")
-    if o.strip().strip('"')
-]
+# Configure CORS — local origins are always available; deployments can provide
+# their Vercel URL through VERCEL_FRONTEND_URL or extend CORS_ORIGINS.
+configured_origins = os.getenv("CORS_ORIGINS", "")
+deployed_frontend_url = os.getenv("VERCEL_FRONTEND_URL", "https://greenledger.vercel.app")
+cors_origins = list(dict.fromkeys(
+    origin
+    for raw_origin in [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        deployed_frontend_url,
+        *configured_origins.split(","),
+    ]
+    for origin in [raw_origin.strip().strip('"')]
+    if origin
+))
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,

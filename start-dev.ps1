@@ -19,4 +19,4 @@ Start-Process powershell -WorkingDirectory (Join-Path $root "frontend") -Argumen
 )
 
 Write-Host "GreenLedger services are starting in separate PowerShell windows."
-Write-Host "Dashboard: http://localhost:3001"
+Write-Host "Dashboard: http://localhost:3000"

@@ -164,8 +164,19 @@ export default function DashboardPage() {
             <p className="mt-1.5 text-[11px] font-mono text-white/40 truncate">
               {prediction.data
                 ? `XGBoost v${prediction.data.model_version} · ${prediction.data.inference_latency_ms.toFixed(2)} ms`
+                : prediction.isError
+                ? "ML backend unavailable — retrying"
                 : "waiting for inference"}
             </p>
+            {prediction.isError && (
+              <button
+                type="button"
+                onClick={() => void prediction.refetch()}
+                className="mt-1 text-[11px] font-mono text-amber-300 hover:text-amber-200"
+              >
+                Retry XGBoost inference
+              </button>
+            )}
             {prediction.data?.is_out_of_distribution && (
               <p className="mt-1 text-[11px] font-mono text-amber-300">
                 Out-of-distribution reading — treat with caution

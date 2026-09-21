@@ -282,6 +282,7 @@ endpoint fails closed with **503** rather than guessing.
 - `SEPOLIA_RPC_URL`, `CONTRACT_ADDRESS` — required for `/api/blockchain/verify-mint`.
 - `CORS_ORIGINS` — comma-separated list for the backend CORS policy
   (defaults to localhost:3000 + greenledger.vercel.app; never `*` with credentials).
+- `VERCEL_FRONTEND_URL` — deployed frontend origin added to the backend CORS policy.
 - `ENVIRONMENT` — reported by `/health`.
 - `CARBON_INTENSITY_KG_PER_KWH` — default grid factor (0.385 US eGRID average; also the
   in-code default used by `services/carbon/calculator.py`).

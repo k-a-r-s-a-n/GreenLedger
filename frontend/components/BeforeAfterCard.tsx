@@ -9,13 +9,19 @@ interface BeforeAfterCardProps {
   beforeTelemetry: TelemetryData;
   afterTelemetry: TelemetryData;
   onReset?: () => void;
+  onRollback?: () => void;
+  rollbackPending?: boolean;
+  rollbackAvailable?: boolean;
 }
 
 export const BeforeAfterCard: React.FC<BeforeAfterCardProps> = ({
   result: rawResult,
   beforeTelemetry: rawBefore,
   afterTelemetry: rawAfter,
-  onReset
+  onReset,
+  onRollback,
+  rollbackPending = false,
+  rollbackAvailable = false
 }) => {
   const [animatedReduction, setAnimatedReduction] = useState(0);
 
@@ -104,6 +110,15 @@ export const BeforeAfterCard: React.FC<BeforeAfterCardProps> = ({
               title="Reset comparison"
             >
               <RotateCcw className="w-4 h-4" />
+            </button>
+          )}
+          {onRollback && rollbackAvailable && (
+            <button
+              onClick={onRollback}
+              disabled={rollbackPending}
+              className="px-2.5 py-1.5 rounded-lg bg-surface-elevated hover:bg-surface-border text-xs text-white transition disabled:opacity-50"
+            >
+              {rollbackPending ? "Restoring..." : "Rollback"}
             </button>
           )}
         </div>

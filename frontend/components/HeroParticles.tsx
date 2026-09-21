@@ -52,12 +52,12 @@ export function HeroParticles({ className }: { className?: string }) {
         camera.position.z = 50;
 
         renderer = new three.WebGLRenderer({ alpha: true, antialias: true });
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.25));
         renderer.setSize(width, height);
         mount.appendChild(renderer.domElement);
 
-        // ~900 points in a wide slab behind the headline.
-        const COUNT = 900;
+        // Keep the background atmospheric without competing with the hero WebGL sphere.
+        const COUNT = 350;
         const positions = new Float32Array(COUNT * 3);
         for (let i = 0; i < COUNT; i++) {
           positions[i * 3] = (Math.random() - 0.5) * 130; // x

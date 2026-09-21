@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { spawn } from "child_process";
 import path from "path";
+import { BACKEND_BASE_URL } from "../../../lib/config";
 
 // Keep track of spawned child process handles in runtime memory
 let backendStarted = false;
@@ -21,7 +22,7 @@ export async function GET() {
   const backendDir = path.join(rootDir, "backend");
 
   const agentHealthUrl = "http://127.0.0.1:8765/health";
-  const backendHealthUrl = "http://127.0.0.1:8000/health";
+  const backendHealthUrl = `${BACKEND_BASE_URL}/health`;
 
   const [agentUp, backendUp] = await Promise.all([
     checkPort(agentHealthUrl, 800),

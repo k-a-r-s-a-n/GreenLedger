@@ -17,11 +17,11 @@ GreenLedger enforces strict non-negotiable safety guardrails:
 
 ### 1. Windows Energy Saver Profile (`enable_power_saver`)
 - **Action**: Activates Windows Power Saver scheme using `powercfg /setactive a1841308-3541-4fab-bc81-f71556f20b4a`.
-- **Effect**: Curbs dynamic core voltage spikes, limits background telemetry, and reduces idle wattage by 10-15%.
+- **Effect**: Requests the Windows Power Saver scheme. The resulting power change is measured after stabilization; no fixed watt reduction is assumed.
 - **Reversible**: Yes (`undo` restores original power plan).
 
 ### 2. Graceful Process Suspension (`close_process_<pid>`)
-- **Action**: Sends `SIGTERM` to high-draw user processes (e.g. background Chrome, Spotify, Discord, Slack).
+- **Action**: Sends a graceful termination request to high-draw user processes (e.g. background Chrome, Spotify, Discord, Slack). Process termination is not automatically reversible.
 - **Safety**: Only applies to non-system user-space applications.
 - **Reversible**: Manual application relaunch.
 
