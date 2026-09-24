@@ -1,5 +1,6 @@
 {
-  "version": "1.0.0",
+  "version": "1.1.0",
+  "changelog": "v1.1.0 adds screen_brightness, cpu_frequency, power_saver_active + freq_util_product so display and DVFS/power-plan effects are measurable (v1.0 was blind to them).",
   "features": [
     "cpu_utilization",
     "memory_usage",
@@ -7,9 +8,13 @@
     "process_count",
     "thread_count",
     "uptime",
+    "screen_brightness",
+    "cpu_frequency",
+    "power_saver_active",
     "cpu_memory_ratio",
     "process_thread_ratio",
-    "resource_pressure"
+    "resource_pressure",
+    "freq_util_product"
   ],
   "base_features": [
     "cpu_utilization",
@@ -17,12 +22,16 @@
     "disk_io",
     "process_count",
     "thread_count",
-    "uptime"
+    "uptime",
+    "screen_brightness",
+    "cpu_frequency",
+    "power_saver_active"
   ],
   "engineered_features": [
     "cpu_memory_ratio",
     "process_thread_ratio",
-    "resource_pressure"
+    "resource_pressure",
+    "freq_util_product"
   ],
   "target": "power_consumption",
   "target_unit": "Watts",
@@ -31,55 +40,105 @@
       "min": 0.07,
       "max": 83.59,
       "mean": 28.523826,
-      "std": 15.72104208308539
+      "std": 15.72104208308539,
+      "ood_min": 0.0,
+      "ood_max": 100.0
     },
     "memory_usage": {
       "min": 10.0,
       "max": 98.0,
       "mean": 55.114599,
-      "std": 14.952873568715653
+      "std": 14.952873568715653,
+      "ood_min": 0.0,
+      "ood_max": 100.0
     },
     "disk_io": {
       "min": 0.1,
       "max": 121.18,
       "mean": 14.887171999999998,
-      "std": 14.679025144073227
+      "std": 14.679025144073227,
+      "ood_min": 0.0,
+      "ood_max": 165.2170754322197
     },
     "process_count": {
       "min": 60.0,
       "max": 349.0,
       "mean": 204.3944,
-      "std": 83.61154428470849
+      "std": 83.61154428470849,
+      "ood_min": 1.0,
+      "ood_max": 599.8346328541254
     },
     "thread_count": {
       "min": 480.0,
       "max": 8027.0,
       "mean": 3174.1632,
-      "std": 1652.2751768672701
+      "std": 1652.2751768672701,
+      "ood_min": 1.0,
+      "ood_max": 12983.82553060181
     },
     "uptime": {
       "min": 0.1,
-      "max": 716.92,
-      "mean": 73.219682,
-      "std": 72.24398788631099
+      "max": 720.0,
+      "mean": 71.520618,
+      "std": 71.273749005702,
+      "ood_min": 0.01,
+      "ood_max": 933.821247017106
+    },
+    "screen_brightness": {
+      "min": 20.0,
+      "max": 100.0,
+      "mean": 60.34457,
+      "std": 23.134055912645255,
+      "ood_min": 0.0,
+      "ood_max": 100.0
+    },
+    "cpu_frequency": {
+      "min": 800.0,
+      "max": 3430.5,
+      "mean": 1694.45485,
+      "std": 472.8664081053643,
+      "ood_min": 400.0,
+      "ood_max": 4849.099224316093
+    },
+    "power_saver_active": {
+      "min": 0.0,
+      "max": 1.0,
+      "mean": 0.2898,
+      "std": 0.45369212430277583,
+      "ood_min": 0.0,
+      "ood_max": 1.0
     },
     "cpu_memory_ratio": {
       "min": 0.0010510508932356018,
       "max": 5.5789944210055795,
       "mean": 0.570239484645344,
-      "std": 0.4044827944536082
+      "std": 0.4044827944536082,
+      "ood_min": 0.0,
+      "ood_max": 6.792442804366404
     },
     "process_thread_ratio": {
       "min": 7.9999986666668885,
       "max": 22.99999934097423,
       "mean": 15.54739904890726,
-      "std": 4.6278172224091065
+      "std": 4.6278172224091065,
+      "ood_min": 0.0,
+      "ood_max": 36.88345100820155
     },
     "resource_pressure": {
       "min": 4.4205,
       "max": 74.3045,
       "mean": 35.78391945,
-      "std": 9.672896417379173
+      "std": 9.672896417379173,
+      "ood_min": 0.0,
+      "ood_max": 103.32318925213752
+    },
+    "freq_util_product": {
+      "min": 8.031800000000001e-05,
+      "max": 0.273138672,
+      "mean": 0.053807453946800005,
+      "std": 0.042124143127345005,
+      "ood_min": 0.0,
+      "ood_max": 0.39951110138203505
     }
   }
 }

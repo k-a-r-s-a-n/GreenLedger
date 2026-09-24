@@ -7,7 +7,7 @@ The GreenLedger optimization engine translates hardware telemetry into ranked, n
 
 ## Safety Guardrails & Blacklist
 GreenLedger enforces strict non-negotiable safety guardrails:
-1. **Never Kills System Processes**: `explorer.exe`, `svchost.exe`, `dwm.exe`, `csrss.exe`, `lsass.exe`, and antivirus services (`msmpeng.exe`, `securityhealthservice.exe`) are blacklisted from termination.
+1. **Never Kills System Processes**: `explorer.exe`, `svchost.exe`, `dwm.exe`, `csrss.exe`, `lsass.exe`, and antivirus services (`msmpeng.exe`, `securityhealthservice.exe`) are blacklisted from termination. Process termination additionally requires an **allowlist** of everyday user applications (`agent/config.py`); anything else is rejected at execution time even if a crafted action ID is submitted.
 2. **Reversible Actions**: Windows power scheme adjustments record the prior scheme GUID for instant rollback.
 3. **No Arbitrary Shell Execution**: The agent exposes strictly enumerated action IDs; arbitrary terminal command strings sent from the web client are rejected.
 
@@ -22,8 +22,20 @@ GreenLedger enforces strict non-negotiable safety guardrails:
 
 ### 2. Graceful Process Suspension (`close_process_<pid>`)
 - **Action**: Sends a graceful termination request to high-draw user processes (e.g. background Chrome, Spotify, Discord, Slack). Process termination is not automatically reversible.
-- **Safety**: Only applies to non-system user-space applications.
+- **Safety**: Allowlist-enforced — only everyday user applications in `agent/config.py` (`OPTIMIZABLE_PROCESS_CANDIDATES`) may be terminated; the approved executable name is re-verified against the PID at execution time to defeat PID reuse, and no force-kill is ever issued.
 - **Reversible**: Manual application relaunch.
 
-### 3. Memory Working Set Trim (`trim_working_sets`)
-- **Action**: Flushes Python caches and signals the Windows memory manager to release stale working set pages.
+### 3. Display Brightness Reduction (`reduce_brightness`)
+- **Action**: Dims the display to an energy-efficient 40% target via Windows WMI (`WmiMonitorBrightnessMethods`), executed through the Next.js `/api/brightness` route.
+- **Effect**: No fixed watt reduction is promised — the resulting power change is measured after stabilization and verified server-side like any other action.
+- **Reversible**: Yes (the pre-optimization brightness level is captured once per session and restorable).
+
+### 4. Sustained CPU Cap (`cap_cpu_55`)
+- **Action**: Caps sustained CPU frequency at 55% via `powercfg` `PROCTHROTTLEMAX` (AC + DC), executed in the agent.
+- **Effect**: DVFS-driven reduction under load; idle machines move little (honest physics). Previous AC/DC values are captured and re-verified for rollback.
+- **Reversible**: Yes (`undo` restores the exact previous throttle values).
+
+### 5. Eco Mode Bundle (`eco_mode`)
+- **Action**: One verified cycle stacking every safe lever — display to 35% (Next.js route) + agent `eco_core` (Power Saver plan + 55% CPU cap). Snapshotted once before/after; all-or-nothing execution with single undo.
+- **Effect**: The 40%+ path. Trial protocol (`ml/scripts/evaluate_actions.py`, frozen `student_typical` baseline, n=20): **43.2% ± 1.3%** mean power reduction (carbon % equals power %).
+- **Reversible**: Yes (brightness + throttle + plan all restored).

@@ -94,12 +94,12 @@ export const ScrollDashboardDeck: React.FC<ScrollDashboardDeckProps> = ({
                   <span className="text-emerald-300 font-semibold">
                     {prediction?.inference_latency_ms != null
                       ? `${prediction.inference_latency_ms.toFixed(2)} ms`
-                      : "1.4 ms"}
+                      : "—"}
                   </span>
                 </div>
                 <div className="flex justify-between text-white/60">
                   <span>Model Engine:</span>
-                  <span className="text-white">v{prediction?.model_version ?? "1.0.0"}</span>
+                  <span className="text-white">v{prediction?.model_version ?? "—"}</span>
                 </div>
                 <div className="flex justify-between text-white/60">
                   <span>Distribution Guard:</span>

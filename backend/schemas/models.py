@@ -33,6 +33,10 @@ class TelemetryInput(BaseModel):
     battery_percentage: Optional[float] = None
     power_plugged: Optional[bool] = None
     power_meter_raw: Optional[float] = None
+    # v1.1.0 model signals (display + DVFS awareness)
+    screen_brightness: Optional[float] = Field(None, ge=0.0, le=100.0)
+    cpu_frequency_mhz: Optional[float] = Field(None, ge=0.0)
+    power_saver_active: Optional[int] = Field(None, ge=0, le=1)
     top_cpu_processes: Optional[List[Dict[str, Any]]] = None
     top_memory_processes: Optional[List[Dict[str, Any]]] = None
 

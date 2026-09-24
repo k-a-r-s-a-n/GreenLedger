@@ -70,14 +70,14 @@ flowchart TD
 
 ## Machine Learning Pipeline & Verified Results
 
-Trained using `ml/scripts/train.py` on 10,000 samples with hyperparameter cross-validation, 70/15/15 train-val-test split, and early stopping:
+Trained using `ml/scripts/train.py` on 10,000 samples with fixed documented hyperparameters, a single 85/15 train/test split (seed 42), and early stopping:
 
 | Metric | Verified Test-Set Result | Description |
 |---|---|---|
 | **$R^2$ Score** | See `ml/models/metrics.json` | Computed from the current held-out test split |
 | **Mean Absolute Error (MAE)** | See `ml/models/metrics.json` | Computed from the current held-out test split |
 | **Root Mean Squared Error (RMSE)** | See `ml/models/metrics.json` | Computed from the current held-out test split |
-| **Percentage Error (MAPE)** | **4.10%** | Current synthetic held-out test split in `ml/models/metrics.json` |
+| **Percentage Error (MAPE)** | **4.46%** | Current synthetic held-out test split in `ml/models/metrics.json` (schema v1.1.0) |
 | **Inference Latency** | Runtime-measured | Recorded per request; not a training metric |
 
 ### Model Artifacts Saved:
@@ -131,9 +131,10 @@ $$\text{Credits} = 10\ (\text{Base}) + \lfloor\text{Power Drop \%}\rfloor + \lfl
 
 ## Web3 & Sepolia Smart Contract
 
-- **Contract**: `GreenBadge.sol` (OpenZeppelin-compatible ERC-1155 Multi-Token Standard).
+- **Contract**: `GreenBadge.sol` (ERC-1155 Multi-Token Standard with ERC-165 detection, approvals, and single/batch transfers).
 - **Network**: Ethereum Sepolia Testnet (Chain ID: `11155111`).
 - **Target Address**: `0x71C234Ea533F96507A5F44265E923C47131B64E6`.
+- **Minting**: any wallet self-claims its own badges exactly once per token ID (owner may also relay-mint). Marketplace self-claim requires a deployment of the current contract — older owner-only deployments must be redeployed.
 - **Badges**:
   1. 🌱 `Token #1`: First Optimization (Common)
   2. ⚡ `Token #2`: Power Saver (Rare)

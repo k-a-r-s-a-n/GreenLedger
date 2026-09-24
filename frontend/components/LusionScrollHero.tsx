@@ -44,7 +44,7 @@ export const LusionScrollHero: React.FC = () => {
           className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full liquid-glass text-white/80 text-xs font-mono mb-6 border border-emerald-500/30 shadow-glow-green/10"
         >
           <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse-dot" />
-          <span>Windows 11 Live Intelligence &amp; Autonomous Optimization</span>
+          <span>Windows 11 Live Intelligence &amp; Human-Approved Optimization</span>
         </motion.div>
 
         {/* Cinematic Headline with Lusion-like Scale & Depth */}

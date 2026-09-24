@@ -109,6 +109,21 @@ def test_verify_rejects_wrong_token_id(rpc_env, fake_rpc):
     assert verifier.verify_on_chain_mint("0x" + "ab" * 32, 3, WALLET) is False
 
 
+def test_verify_rejects_self_transfer_posing_as_mint(rpc_env, fake_rpc):
+    """A TransferSingle with from != 0x0 (a transfer, not a mint) must not verify."""
+    log = _log()
+    log["topics"][2] = "0x" + ("0" * 24) + WALLET[2:]  # from == wallet, not zero
+    fake_rpc(receipt=_receipt([log]), transaction=_transaction(), balance="0x1")
+    assert verifier.verify_on_chain_mint("0x" + "ab" * 32, 3, WALLET) is False
+
+
+def test_verify_rejects_wrong_event_signature(rpc_env, fake_rpc):
+    log = _log()
+    log["topics"][0] = "0x" + "dd" * 32  # not TransferSingle
+    fake_rpc(receipt=_receipt([log]), transaction=_transaction(), balance="0x1")
+    assert verifier.verify_on_chain_mint("0x" + "ab" * 32, 3, WALLET) is False
+
+
 def test_verify_rejects_multi_amount_transfer(rpc_env, fake_rpc):
     fake_rpc(receipt=_receipt([_log(value=2)]), transaction=_transaction(), balance="0x2")
     assert verifier.verify_on_chain_mint("0x" + "ab" * 32, 3, WALLET) is False

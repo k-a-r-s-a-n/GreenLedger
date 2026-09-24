@@ -22,6 +22,13 @@ export const EnergyCore3D: React.FC<EnergyCore3DProps> = ({
   const displayCpu = cpuUtilization ?? 0;
   const containerRef = useRef<HTMLDivElement>(null);
   const [reducedMotion, setReducedMotion] = useState(false);
+  // Live values via refs: telemetry ticks every 2.5s, and rebuilding the whole
+  // Three.js scene per tick (effect deps on the values) caused constant
+  // teardown/rebuild flicker. The scene builds once; the loop reads refs.
+  const liveCpu = useRef(displayCpu);
+  const liveOptimized = useRef(isOptimized);
+  liveCpu.current = displayCpu;
+  liveOptimized.current = isOptimized;
 
   useEffect(() => {
     if (!containerRef.current || reducedMotion) return;
@@ -136,8 +143,14 @@ export const EnergyCore3D: React.FC<EnergyCore3DProps> = ({
       const delta = clock.getDelta();
       const t = clock.getElapsedTime();
 
-      // Rotation speed calibrated to real CPU and load factors
-      const loadFactor = isOptimized ? 0.5 : Math.max(0.6, (displayCpu / 100) * 2.2);
+      // Rotation speed calibrated to real CPU and load factors (from refs —
+      // the scene persists across telemetry ticks, only these values change).
+      const cpuNow = liveCpu.current;
+      const optNow = liveOptimized.current;
+      const loadFactor = optNow ? 0.5 : Math.max(0.6, (cpuNow / 100) * 2.2);
+      coreMaterial.color.setHex(optNow ? 0x10b981 : cpuNow > 65 ? 0xf59e0b : 0x34d399);
+      innerMaterial.color.setHex(optNow ? 0x059669 : cpuNow > 65 ? 0xef4444 : 0x06b6d4);
+      particleMaterial.color.setHex(optNow ? 0x34d399 : 0x22d3ee);
 
       core.rotation.x += delta * 0.4 * loadFactor;
       core.rotation.y += delta * 0.6 * loadFactor;
@@ -192,7 +205,7 @@ export const EnergyCore3D: React.FC<EnergyCore3DProps> = ({
       particleGeometry.dispose();
       particleMaterial.dispose();
     };
-  }, [displayCpu, gpuUtilization, displayPower, isOptimized, reducedMotion]);
+  }, [reducedMotion]);
 
   return (
     <div className="relative w-full h-[300px] liquid-glass rounded-2xl overflow-hidden flex flex-col items-center justify-center p-4 border border-white/10 group">

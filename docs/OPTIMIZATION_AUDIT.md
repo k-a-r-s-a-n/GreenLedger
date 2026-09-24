@@ -112,3 +112,116 @@ Audit started: 2026-09-20
 3. **Medium — frontend/app/marketplace/page.tsx, badges pages, contracts/**: marketplace, badge, and token-ID compatibility was not changed or independently deployed; it requires a dedicated protected Web3 audit.
 4. **Medium — start-dev.ps1 and frontend package scripts**: documented/printed port behavior differs (`3000` vs dev `3001`); not changed because it is outside the optimization subsystem.
 5. **Low — backend test warnings**: installed Starlette/httpx versions emit deprecation warnings; no behavior failure was observed.
+
+---
+
+## Fix pass 2026-09-24 (full-repo review remediation)
+
+### Fixed
+- **Critical, frontend/app/optimize/page.tsx**: `rollbackMutation` was created inside the 429 `onError` callback (Rules-of-Hooks violation) yet referenced in render scope — crashing the verified-result panel after every successful optimization. Hoisted to component top level; removed dead `buildLocalRecommendations` duplicate and unused icon imports.
+- **Build safety, frontend/next.config.js**: re-enabled `typescript.ignoreBuildErrors: false` (and documented the ESLint flag) so type errors fail the build instead of shipping as runtime crashes. Fixed the two `slideVariants` framer-motion `Variants` type errors this surfaced.
+- **Contract, contracts/contracts/GreenBadge.sol**: `mint` was `onlyOwner`, so no user wallet could ever mint from the marketplace. Now supports self-claim (`msg.sender == account`) plus owner relay, with one-mint-per-wallet still enforced. Completed ERC-1155 surface: ERC-165 `supportsInterface`, `balanceOfBatch`, approvals, single/batch safe transfers with receiver checks, `TransferBatch`/`ApprovalForAll` events. `frontend/lib/web3.ts` owner-gate replaced with an ERC-1155 interface check plus an already-minted pre-check. Contract tests rewritten/extended; added missing `contracts/package.json` + `hardhat.config.js` (plus standard `contracts/` sources layout) so `npx hardhat test` and the Sepolia deploy script run.
+- **ML integrity, ml/scripts/train.py**: final fit early-stopped on the TEST split (test-set leakage). Now early-stops on validation; test split is touched once for reporting. Model retrained: R² 0.9753, MAPE 4.17% (n=1500) — confirming the metrics were not an artifact of the leak.
+- **Agent safety, agent/optimizer.py**: `close_process_<pid>` execution now enforces the optimizable-application allowlist (previously only the denylist), closing the crafted-action-ID hole. `frontend/lib/api.ts` local recommendation mirror is allowlist-based to match.
+- **Backend whitelist**: removed dead `trim_working_sets` entry (no implementation anywhere). `docs/api-contract.md` + `docs/optimization.md` updated (brightness action documented in its place).
+- **Agent telemetry, agent/windows_metrics.py**: `disk_read_mbs`/`disk_write_mbs` divided cumulative-since-boot counters by the poll interval (ever-growing fiction). Now computed from per-sample deltas like `disk_io`.
+- **Agent CORS, agent/api.py**: replaced `allow_origins=["*"]` + credentials (rejected by browsers) with explicit loopback origins.
+- **Honesty/copy**: landing + deck + step copy now cite measured `metrics.json` values (R² 0.975, MAPE 4.2%) instead of "99.1% R² / sub-2ms"; `metrics.json` + `dataset_loader.py` no longer record absolute local paths; `.env.example` inner-quote footgun removed; `deployment.md` now states the Vercel build is frontend-only and documents the hosted-backend requirement for remote Demo Mode.
+- **Minor**: `rewards.py` lifetime-kWh conversion uses the named `DEFAULT_CARBON_INTENSITY` constant instead of a magic `385.0`.
+
+### Verification (this environment, Linux sandbox)
+- Backend suite: `python -m pytest backend/tests/` — all pass (see run output).
+- Contract compile: `solcjs` (solc 0.8.20 via npm) compiles `contracts/contracts/GreenBadge.sol` with no errors. `npx hardhat test` could NOT run in this sandbox (binaries.soliditylang.org is unreachable here, so Hardhat cannot download its compiler) — run `cd contracts && npm install && npx hardhat test` on a networked machine; the suite covers self-claim, owner relay, duplicates, ERC-165, batch balances, and approval-gated transfers.
+- **Build/runtime crash, frontend/app/api/start-services/route.ts**: the GET handler executed during `next build` static route evaluation and called `spawn("cmd.exe", …)` with no `'error'` listener — an unhandled error event that crashes the Node worker on any non-Windows machine (Linux dev, Vercel build/runtime). Now `force-dynamic`, returns 501 on non-Windows instead of spawning, and attaches error handlers that reset the started flags. `frontend/app/api/brightness/route.ts` also marked `force-dynamic` (hardware probing must not run at build).
+- Frontend: `npx tsc --noEmit` clean and full `npm run build` succeeds (18/18 static pages, type checks enforced). In this sandbox Google Fonts is unreachable, so the build was verified with the `next/font` import temporarily stubbed and `app/layout.tsx` then restored byte-identical (no diff).
+- Retrain: `python ml/scripts/train.py` regenerates model + schema + honest metrics.
+- Not verifiable here: Windows-only paths (`powercfg`, WMI brightness, agent subprocess probes), live Sepolia deployment, and MetaMask self-claim UX — all require Windows hardware + testnet wallet.
+
+---
+
+## Fix pass 2026-09-24 (v1.1.0: beating the 40% project, honestly)
+
+### Double-check findings (prompted by external skepticism — largely valid)
+- v1.0 model saw utilization % only: brightness cuts, power-plan switches, and
+  frequency caps change watts through backlight/clocks the model never
+  received, so they verified at ~0% even when real watts dropped.
+- Literature: laptop backlight ~26-29% of system power; idle dimming cut total
+  system 13.1W -> 8.2W (-37%, Mahesri & Vardhan); LCD max-min delta ~6W
+  (NotebookCheck); Power Saver vs High Performance ~18% at full load but ~0%
+  at idle (wall measurements); DVFS P = C*V^2*f with workload-dependent,
+  diminishing returns on modern silicon (Weissel & Bellosa).
+- Conclusion: 40%+ is real but ONLY via stacked levers + an instrument that
+  sees them. Single "simple optimizations" verify at ~10-25% each.
+
+### Built
+- **Model v1.1.0**: +`screen_brightness`, +`cpu_frequency`, +`power_saver_active`,
+  +`freq_util_product` (DVFS interaction, now top importance at 0.72).
+  Synthetic physics extended (display + DVFS terms); retrained honestly
+  (test untouched): R² 0.9592, MAE 0.98W, MAPE 4.46%.
+- **Agent**: `cap_cpu_55` (powercfg PROCTHROTTLEMAX AC+DC, verified + reversible)
+  and `eco_core` bundle (saver plan + cap, all-or-nothing, single undo);
+  collector adds cached (30s TTL) brightness + saver-state probes.
+- **Backend**: whitelist += `cap_cpu_55`, `eco_mode`; recommendations offer the
+  Eco bundle; schemas accept the v1.1 signals; demo scenarios carry them.
+- **Frontend**: Eco Mode hero card (brightness 35 + eco_core, one verified
+  cycle, full rollback); telemetry types extended.
+- **Proof**: `ml/scripts/evaluate_actions.py` — frozen personas, N trials,
+  mean ± 95% CI, JSON trial log. Headline: Eco Mode **43.2% ± 1.3%** on
+  `student_typical` (n=20); 63% heavy baseline, 12% clean baseline.
+
+### Verification (Linux sandbox)
+- Backend suite 51/51; `tsc --noEmit` clean; eval protocol + retrain run green.
+- Not verifiable here: Windows-only execution (powercfg/WMI), live trial
+  confirmation on hardware, Sepolia redeploy.
+
+## Phase 0 — Integrity fixes (2026-09-24)
+Full-repo line-by-line re-read; all findings fixed before any new work.
+
+### Bugs fixed
+- **Live `disk_io` permanently 0.0** (`agent/windows_metrics.py`): header declared
+  `_last_disk_bytes`, reader used `_last_disk_read/write_bytes` → NameError every
+  poll, swallowed by `except`. Header corrected; verified at both sites.
+- **Stale explanation panel** (`inference.py`): contributions hardcoded v1.0
+  features, hiding `freq_util_product` (importance 0.72). Now v1.1 set.
+- **Participation farming** (`rewards.py`): sub-threshold cycles extended streaks
+  and optimization counts (~900 farmable credits/hr). Participation now awards
+  5 credits only; docs + contract updated.
+- **Mint-evidence gap** (`verifier.py`): TransferSingle check ignored event
+  signature and `from == 0x0`, so a self-transfer could pose as a mint. Strict
+  now, with regression tests.
+- **Fabricated latency** (`ScrollDashboardDeck.tsx`): `"1.4 ms"` placeholder while
+  loading → `"—"`; stale `v1.0.0` fallback → live version from payload.
+- **OOD false-positives** (`train.py` + `inference.py`): raw min/max bounds flagged
+  real machines (boost clocks, long uptimes). Schema now stores explicit
+  `ood_min/ood_max` (observed extremes ± 3σ margin, physical limits); retrained,
+  metrics unchanged (R² 0.9592, MAPE 4.46%).
+- **Dropped `Retry-After`** (evaluate-delta proxy): forwarded, so the 429
+  countdown uses the server value.
+- **CPU-cap rollback 422** (`api.ts` + optimize page): `cap_cpu_55` rollback
+  branch added; Rollback button gated consistently.
+
+### Honesty/copy corrections
+- Diagnostics: model version from payload (was hardcoded v1.0.0); loss-function
+  copy corrected (squared error, not "multi-objective").
+- Landing: "6 Primary Features" → 13; "0 Risk" → "Reversible · Guarded";
+  "Autonomous Optimization" → "Human-Approved"; spoofing-prevention overclaim
+  removed.
+- README: "hyperparameter cross-validation, 70/15/15" → fixed params, single
+  85/15 split (seed 42). Hackathon script + API contract numbers refreshed.
+- `.env.example`: removed never-read vars (`PORT/HOST/DEBUG`, `MODEL_PATH*`,
+  `API_RATE_LIMIT`, `NEXT_PUBLIC_DEFAULT_CARBON_INTENSITY`);
+  `CARBON_INTENSITY_KG_PER_KWH` is now actually read by the calculator.
+
+### Hygiene
+- Deleted ~1,100 lines of dead components (`PowerGauge`, `SlidingDashboardDeck`,
+  `SlidingCardCarousel`, `PresentationMode`, `BlurText` — imported nowhere).
+- `EnergyCore3D`: scene builds once, telemetry ticks via refs (was full
+  rebuild + flicker every 2.5s). `Providers`: start-services fetch moved from
+  state initializer to `useEffect`. Before/after window now medians v1.1
+  signals (brightness/frequency/saver), not just cpu/mem/disk.
+
+### Verification (Linux sandbox)
+- Backend suite **56/56** (5 new: OOD flag ×2, mint-evidence ×2,
+  participation anti-farming ×1); `tsc --noEmit` clean; retrain reproduces
+  metrics exactly. `next build` fails only on Google Fonts fetch (sandbox has
+  no external web access) — no code errors.

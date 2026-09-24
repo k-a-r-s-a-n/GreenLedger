@@ -10,6 +10,8 @@ When an optimization cycle completes, credits are calculated transparently:
 
 $$\text{Credits} = \text{Base Reward (10)} + \lfloor\text{Power Drop \%}\rfloor + \lfloor\text{CO}_2\text{ Saved (g)} \times 0.5\rfloor + \text{Streak Bonus (5)}$$
 
+Sub-threshold cycles (<3%) earn 5 participation credits only — no streak extension, no optimization count (anti-farming).
+
 ---
 
 ## Anti-Abuse Protections

@@ -16,7 +16,8 @@ logger = logging.getLogger("GreenLedger.WindowsMetrics")
 
 # Track previous disk/net stats for rate calculation
 _last_disk_time = None
-_last_disk_bytes = None
+_last_disk_read_bytes = None
+_last_disk_write_bytes = None
 _last_net_time = None
 _last_net_bytes = None
 
@@ -66,30 +67,39 @@ def get_memory_metrics() -> Dict[str, Any]:
 
 
 def get_disk_metrics() -> Dict[str, Any]:
-    """Calculates disk read/write throughput rates in MB/s."""
-    global _last_disk_time, _last_disk_bytes
+    """Calculates disk read/write throughput rates in MB/s from sample deltas."""
+    global _last_disk_time, _last_disk_read_bytes, _last_disk_write_bytes
     try:
         now = time.time()
         io = psutil.disk_io_counters()
         if io is None:
             return {"disk_io": None, "disk_read_mbs": None, "disk_write_mbs": None}
 
-        total_bytes = io.read_bytes + io.write_bytes
-        if _last_disk_time is None or _last_disk_bytes is None:
+        if _last_disk_time is None or _last_disk_read_bytes is None or _last_disk_write_bytes is None:
             _last_disk_time = now
-            _last_disk_bytes = total_bytes
+            _last_disk_read_bytes = io.read_bytes
+            _last_disk_write_bytes = io.write_bytes
             return {"disk_io": None, "disk_read_mbs": None, "disk_write_mbs": None}
 
         elapsed = max(0.001, now - _last_disk_time)
-        rate_mbs = max(0.0, (total_bytes - _last_disk_bytes) / (1024 * 1024 * elapsed))
-        
+        # Delta of cumulative counters over the elapsed window (clamped at 0 in
+        # case a counter resets between samples).
+        read_delta = max(0, io.read_bytes - _last_disk_read_bytes)
+        write_delta = max(0, io.write_bytes - _last_disk_write_bytes)
+        total_delta = read_delta + write_delta
+
+        rate_mbs = total_delta / (1024 * 1024 * elapsed)
+        read_mbs = read_delta / (1024 * 1024 * elapsed)
+        write_mbs = write_delta / (1024 * 1024 * elapsed)
+
         _last_disk_time = now
-        _last_disk_bytes = total_bytes
-        
+        _last_disk_read_bytes = io.read_bytes
+        _last_disk_write_bytes = io.write_bytes
+
         return {
             "disk_io": round(float(rate_mbs), 2),
-            "disk_read_mbs": round(float((io.read_bytes) / (1024 * 1024 * elapsed)), 2) if elapsed > 0 else 0.0,
-            "disk_write_mbs": round(float((io.write_bytes) / (1024 * 1024 * elapsed)), 2) if elapsed > 0 else 0.0,
+            "disk_read_mbs": round(float(read_mbs), 2),
+            "disk_write_mbs": round(float(write_mbs), 2),
         }
     except Exception as e:
         logger.warning(f"Failed to read Disk metrics: {e}")
@@ -300,6 +310,52 @@ def get_system_power_metrics() -> Dict[str, Any]:
     }
 
 
+# TTL cache for slow powercfg/WMI probes (plan and brightness change rarely;
+# re-querying every 2s poll would just burn the watts we're trying to save).
+_slow_probe_cache: Dict[str, Any] = {"at": 0.0, "power_saver_active": None, "screen_brightness": None}
+_SLOW_PROBE_TTL = 30.0
+
+
+def get_display_power_state() -> Dict[str, Any]:
+    """
+    Reads screen brightness (WMI, 0-100) and whether the Power Saver scheme is
+    active (powercfg). Results are cached for 30s. Returns None per-field when
+    the sensor is not exposed (external monitors, query failure).
+    """
+    global _slow_probe_cache
+    now = time.time()
+    if now - _slow_probe_cache["at"] < _SLOW_PROBE_TTL:
+        return {
+            "screen_brightness": _slow_probe_cache["screen_brightness"],
+            "power_saver_active": _slow_probe_cache["power_saver_active"],
+        }
+
+    brightness = None
+    saver = None
+    try:
+        res = subprocess.run(
+            ["powershell", "-NoProfile", "-Command",
+             "(Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightness).CurrentBrightness"],
+            capture_output=True, text=True, timeout=3.0,
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            val = int(res.stdout.strip().split()[0])
+            brightness = float(max(0, min(100, val)))
+    except Exception:
+        brightness = None
+
+    try:
+        from config import POWER_SCHEMES
+        res = subprocess.run(["powercfg", "/getactivescheme"], capture_output=True, text=True, timeout=3.0)
+        if res.returncode == 0:
+            saver = 1 if POWER_SCHEMES["power_saver"].lower() in res.stdout.lower() else 0
+    except Exception:
+        saver = None
+
+    _slow_probe_cache = {"at": now, "power_saver_active": saver, "screen_brightness": brightness}
+    return {"screen_brightness": brightness, "power_saver_active": saver}
+
+
 def collect_full_telemetry() -> Dict[str, Any]:
     """Assembles unified telemetry record conforming to GreenLedger schema."""
     cpu = get_cpu_metrics()
@@ -309,6 +365,7 @@ def collect_full_telemetry() -> Dict[str, Any]:
     gpu = get_gpu_metrics()
     proc = get_process_metrics()
     sys_power = get_system_power_metrics()
+    display_state = get_display_power_state()
     
     record = {
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -336,6 +393,8 @@ def collect_full_telemetry() -> Dict[str, Any]:
         "battery_percentage": sys_power["battery_percentage"],
         "power_plugged": sys_power["power_plugged"],
         "power_meter_raw": sys_power["power_meter_raw"],
+        "screen_brightness": display_state["screen_brightness"],
+        "power_saver_active": display_state["power_saver_active"],
         "top_cpu_processes": proc["top_cpu_processes"],
         "top_memory_processes": proc["top_memory_processes"]
     }

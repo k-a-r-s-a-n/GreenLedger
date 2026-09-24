@@ -36,10 +36,15 @@ MAX_WINDOW_CPU_STDDEV = 15.0
 MAX_WINDOW_MEMORY_STDDEV = 15.0
 
 # Safe action whitelist. Only these action IDs (and close_process_<pid>) may be
-# evaluated server-side. Mirrors the agent's enumerated, non-arbitrary actions.
-# reduce_brightness executes via the frontend's /api/brightness route (WMI),
-# so it is verifiable server-side like the other static safe actions.
-SAFE_STATIC_ACTIONS = {"enable_power_saver", "trim_working_sets", "reduce_brightness"}
+# evaluated server-side. Every entry MUST have a real implementation:
+# enable_power_saver runs in the agent (or the Next.js /api/power-saver route),
+# reduce_brightness runs via the Next.js /api/brightness route (WMI),
+# cap_cpu_55 runs in the agent (powercfg PROCTHROTTLEMAX, reversible),
+# eco_mode is the one-cycle bundle: brightness 35 (Next route) + agent eco_core
+# (Power Saver plan + 55% CPU cap), snapshotted once before/after.
+# NOTE: trim_working_sets was removed — it was whitelisted but implemented
+# nowhere, so it could have earned credits without executing anything.
+SAFE_STATIC_ACTIONS = {"enable_power_saver", "reduce_brightness", "cap_cpu_55", "eco_mode"}
 
 
 class UnknownActionError(ValueError):
@@ -141,6 +146,19 @@ class OptimizationEngineService:
             reversible=True,
             description="Throttles aggressive core boost thresholds and reduces background indexers.",
             action_name="Switch Power Plan"
+        ))
+
+        # 3. Eco Mode bundle — the stacked, one-cycle path to 40%+ measured
+        # reduction: display to 35%, Saver plan, 55% sustained CPU cap.
+        recommendations.append(OptimizationRecommendation(
+            id="eco_mode",
+            title="Activate Eco Mode Bundle",
+            category="eco_bundle",
+            priority="high",
+            estimated_power_reduction_pct=None,
+            reversible=True,
+            description="One verified cycle: dims display to 35%, switches to the Power Saver plan, and caps sustained CPU at 55%. Fully reversible.",
+            action_name="Activate Eco Mode"
         ))
 
         return recommendations

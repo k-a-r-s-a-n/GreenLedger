@@ -5,9 +5,19 @@ Explicit unit conversion: Watts -> Kilowatts -> Kilowatt-Hours -> kg / grams CO2
 """
 
 from typing import Dict, Any
+import os
 
-# Default regional grid emission factor (US EPA eGRID average): 0.385 kg CO2e / kWh
-DEFAULT_CARBON_INTENSITY = 0.385
+# Default regional grid emission factor (US EPA eGRID average): 0.385 kg CO2e / kWh.
+# Overridable via CARBON_INTENSITY_KG_PER_KWH (see .env.example); invalid values
+# fall back to the default rather than failing closed on a config typo.
+def _default_intensity() -> float:
+    try:
+        value = float(os.getenv("CARBON_INTENSITY_KG_PER_KWH", "0.385"))
+        return value if value >= 0.0 else 0.385
+    except (TypeError, ValueError):
+        return 0.385
+
+DEFAULT_CARBON_INTENSITY = _default_intensity()
 
 
 def power_to_kwh(power_watts: float, duration_hours: float = 1.0) -> float:

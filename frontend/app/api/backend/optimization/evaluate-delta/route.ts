@@ -12,9 +12,15 @@ export async function POST(request: Request) {
       signal: AbortSignal.timeout(8000),
     });
     const body = await response.text();
+    // Forward Retry-After so the client's 429 cooldown countdown uses the
+    // server's value instead of falling back to a guessed 20s.
+    const retryAfter = response.headers.get("retry-after");
     return new NextResponse(body, {
       status: response.status,
-      headers: { "Content-Type": response.headers.get("content-type") || "application/json" },
+      headers: {
+        "Content-Type": response.headers.get("content-type") || "application/json",
+        ...(retryAfter ? { "Retry-After": retryAfter } : {}),
+      },
     });
   } catch {
     return NextResponse.json(

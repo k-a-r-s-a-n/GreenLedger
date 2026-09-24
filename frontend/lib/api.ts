@@ -238,39 +238,36 @@ function localRecommendations(telemetry: TelemetryData): OptimizationOpportunity
   const recommendations: OptimizationOpportunity[] = [];
   const topProcs = telemetry.top_cpu_processes || [];
 
-  // Protected system processes that must NEVER be recommended for termination
-  const protectedNames = new Set([
-    "system",
-    "system idle process",
-    "registry",
-    "smss.exe",
-    "csrss.exe",
-    "wininit.exe",
-    "services.exe",
-    "lsass.exe",
-    "svchost.exe",
-    "fontdrvhost.exe",
-    "winlogon.exe",
-    "dwm.exe",
-    "explorer.exe",
-    "sihost.exe",
-    "taskhostw.exe",
-    "spoolsv.exe",
-    "securityhealthservice.exe",
-    "msmpeng.exe",
-    "python.exe",
-    "cmd.exe",
-    "powershell.exe",
-    "conhost.exe",
-    "code.exe",
+  // MUST mirror backend/services/optimization/engine.py OPTIMIZABLE_PROCESS_NAMES
+  // and agent/config.py OPTIMIZABLE_PROCESS_CANDIDATES: only these everyday
+  // user applications may ever be suggested for closing. Anything else is
+  // skipped here and would additionally be rejected at execution time.
+  const optimizableNames = new Set([
+    "chrome.exe",
+    "msedge.exe",
+    "firefox.exe",
+    "brave.exe",
+    "opera.exe",
+    "spotify.exe",
+    "discord.exe",
+    "slack.exe",
+    "teams.exe",
+    "zoom.exe",
+    "steam.exe",
+    "epicgameslauncher.exe",
+    "dropbox.exe",
+    "onedrive.exe",
+    "notion.exe",
+    "figma.exe",
   ]);
 
   for (const p of topProcs) {
     const name = (p.name || "").toLowerCase().trim();
     const cpu = p.cpu_percent ?? 0;
     const pid = p.pid;
-    // Skip system services, PID <= 4, or protected Windows tasks
-    if (!name || pid <= 4 || protectedNames.has(name)) {
+    // Allowlist-only: skip PIDs <= 4 and anything that is not a known
+    // optimizable user application (system services can never match).
+    if (!name || pid <= 4 || !optimizableNames.has(name)) {
       continue;
     }
     if (cpu > 8.0) {
@@ -311,6 +308,17 @@ function localRecommendations(telemetry: TelemetryData): OptimizationOpportunity
     reversible: true,
     description: "Display backlighting accounts for up to 30% of laptop draw. Dims display to energy-efficient 40%.",
     action_name: "Reduce Brightness",
+  });
+
+  recommendations.push({
+    id: "eco_mode",
+    title: "Activate Eco Mode Bundle",
+    category: "eco_bundle",
+    priority: "high",
+    estimated_power_reduction_pct: null,
+    reversible: true,
+    description: "One verified cycle: display to 35%, Power Saver plan, 55% sustained CPU cap. Fully reversible.",
+    action_name: "Activate Eco Mode",
   });
 
   return recommendations;
@@ -426,6 +434,45 @@ export async function executeOptimizationAction(
     }
   }
 
+  // Eco Mode bundle: display to 35% (Next.js WMI route) + agent eco_core
+  // (Power Saver plan + 55% CPU cap) as one verified cycle. Brightness 501
+  // (external monitor without WMI) degrades honestly — the core still runs
+  // and verification measures whatever actually changed.
+  if (actionId === "eco_mode") {
+    if (!isAgentLive) return false;
+    try {
+      const brightRes = await fetch("/api/brightness", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ level: 35 }),
+      });
+      if (!brightRes.ok && brightRes.status !== 501) {
+        const body = await brightRes.json().catch(() => null);
+        throw new ApiError(
+          brightRes.status,
+          body?.error ?? `Brightness service returned status ${brightRes.status}.`
+        );
+      }
+      const coreRes = await fetch("/api/agent/optimization/execute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action_id: "eco_core", params }),
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!coreRes.ok) {
+        const body = await coreRes.json().catch(() => null);
+        throw new ApiError(
+          coreRes.status,
+          body?.detail ?? body?.error ?? "The local agent rejected the Eco Core action."
+        );
+      }
+      return true;
+    } catch (err) {
+      if (err instanceof ApiError) throw err;
+      return false;
+    }
+  }
+
   if (!isAgentLive) return false;
   try {
     const res = await fetch("/api/agent/optimization/execute", {
@@ -459,8 +506,33 @@ export async function rollbackOptimizationAction(
     }
     return;
   }
-  if (actionId === "enable_power_saver") {
-    if (!isAgentLive) throw new ApiError(0, "Power-plan rollback requires the live Windows agent.");
+  if (actionId === "eco_mode") {
+    if (!isAgentLive) throw new ApiError(0, "Eco rollback requires the live Windows agent.");
+    const failures: string[] = [];
+    try {
+      const brightRes = await fetch("/api/brightness", { method: "PUT" });
+      if (!brightRes.ok) failures.push("brightness");
+    } catch {
+      failures.push("brightness");
+    }
+    try {
+      const coreRes = await fetch("/api/agent/optimization/undo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action_id: "eco_core" }),
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!coreRes.ok) failures.push("eco core");
+    } catch {
+      failures.push("eco core");
+    }
+    if (failures.length > 0) {
+      throw new ApiError(500, `Eco rollback incomplete (failed: ${failures.join(", ")}).`);
+    }
+    return;
+  }
+  if (actionId === "enable_power_saver" || actionId === "cap_cpu_55") {
+    if (!isAgentLive) throw new ApiError(0, "Agent rollback requires the live Windows agent.");
     const res = await fetch("/api/agent/optimization/undo", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -469,7 +541,7 @@ export async function rollbackOptimizationAction(
     });
     if (!res.ok) {
       const body = await res.json().catch(() => null);
-      throw new ApiError(res.status, body?.detail ?? "Power-plan rollback failed.");
+      throw new ApiError(res.status, body?.detail ?? "Agent rollback failed.");
     }
     return;
   }

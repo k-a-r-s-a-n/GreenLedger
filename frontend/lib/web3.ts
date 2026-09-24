@@ -15,12 +15,16 @@ export const CONTRACT_ADDRESS =
 
 export const GREEN_BADGE_ABI = [
   "function owner() view returns (address)",
+  "function supportsInterface(bytes4 interfaceId) external view returns (bool)",
   "function mint(address account, uint256 id, uint256 amount, bytes data) external",
   "function balanceOf(address account, uint256 id) external view returns (uint256)",
   "function uri(uint256 id) external view returns (string)",
   "function hasMintedBadge(uint256 id, address account) external view returns (bool)",
   "event BadgeMinted(address indexed recipient, uint256 indexed badgeId, string badgeName)"
 ];
+
+/** ERC-1155 interface ID per ERC-165 — used to confirm the contract type. */
+export const ERC1155_INTERFACE_ID = "0xd9b67a26";
 
 declare global {
   interface Window {
@@ -253,17 +257,26 @@ export async function mintBadgeOnChain(
       return { success: false, error: "The configured address is an EIP-7702 account, not a deployed GreenBadge contract. Deploy GreenBadge.sol and configure its contract address." };
     }
 
-    let contractOwner: string;
+    // Confirm the configured address is the current GreenBadge ERC-1155
+    // contract (any wallet may self-claim its own badges exactly once).
+    let isGreenBadge = false;
     try {
-      contractOwner = await contract.owner();
+      isGreenBadge = await contract.supportsInterface(ERC1155_INTERFACE_ID);
     } catch {
-      return { success: false, error: "The configured Sepolia address does not expose the GreenBadge owner function. Configure the deployed GreenBadge contract address." };
+      isGreenBadge = false;
     }
-    if (contractOwner.toLowerCase() !== userAddress.toLowerCase()) {
-      return {
-        success: false,
-        error: "This badge contract only permits its owner to mint. Connect the wallet that deployed the contract or configure an authorized minter."
-      };
+    if (!isGreenBadge) {
+      return { success: false, error: "The configured Sepolia address is not the current GreenBadge ERC-1155 contract. Deploy the GreenBadge contract from the contracts/ project and configure its address." };
+    }
+
+    // Friendly pre-check: skip the transaction when this wallet already owns it.
+    try {
+      const alreadyMinted = await contract.hasMintedBadge(tokenId, userAddress);
+      if (alreadyMinted) {
+        return { success: false, error: "This wallet has already minted this badge." };
+      }
+    } catch {
+      // Non-fatal — the contract enforces one-mint-per-wallet on-chain anyway.
     }
 
     onStatusChange?.("Waiting for signature in wallet...");

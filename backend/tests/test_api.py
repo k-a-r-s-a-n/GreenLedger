@@ -94,7 +94,10 @@ def test_ml_prediction_endpoint():
         "thread_count": 1800,
         "context_switches": 12000,
         "temperature": 50.0,
-        "uptime": 10.0
+        "uptime": 10.0,
+        "screen_brightness": 80.0,
+        "cpu_frequency_mhz": 2100.0,
+        "power_saver_active": 0
     }
     response = client.post("/api/ml/predict", json=payload)
     assert response.status_code == 200
@@ -102,6 +105,47 @@ def test_ml_prediction_endpoint():
     assert "estimated_power_w" in data
     assert data["estimated_power_w"] > 0.0
     assert "inference_latency_ms" in data
+
+
+def test_ml_prediction_flags_out_of_distribution_frequency():
+    """A 5 GHz sustained clock (beyond training bounds) must raise the OOD flag."""
+    payload = {
+        "cpu_utilization": 35.0,
+        "memory_usage": 55.0,
+        "disk_io": 2.5,
+        "network_latency": 20.0,
+        "process_count": 140,
+        "thread_count": 1800,
+        "context_switches": 12000,
+        "temperature": 50.0,
+        "uptime": 10.0,
+        "screen_brightness": 80.0,
+        "cpu_frequency_mhz": 5000.0,
+        "power_saver_active": 0
+    }
+    response = client.post("/api/ml/predict", json=payload)
+    assert response.status_code == 200
+    assert response.json()["is_out_of_distribution"] is True
+
+
+def test_ml_prediction_nominal_is_not_ood():
+    payload = {
+        "cpu_utilization": 35.0,
+        "memory_usage": 55.0,
+        "disk_io": 2.5,
+        "network_latency": 20.0,
+        "process_count": 140,
+        "thread_count": 1800,
+        "context_switches": 12000,
+        "temperature": 50.0,
+        "uptime": 10.0,
+        "screen_brightness": 80.0,
+        "cpu_frequency_mhz": 2100.0,
+        "power_saver_active": 0
+    }
+    response = client.post("/api/ml/predict", json=payload)
+    assert response.status_code == 200
+    assert response.json()["is_out_of_distribution"] is False
 
 
 def test_ml_prediction_rejects_incomplete_telemetry():

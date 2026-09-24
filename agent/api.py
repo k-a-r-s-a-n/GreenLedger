@@ -41,10 +41,15 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Enable CORS for Next.js frontend (local dev and production Vercel)
+# Enable CORS for the local Next.js frontend only. A wildcard origin combined
+# with allow_credentials is rejected by browsers, so the loopback origins are
+# listed explicitly. The agent binds to 127.0.0.1 and is never exposed remotely.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Localhost daemon accepts connection from local browser
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

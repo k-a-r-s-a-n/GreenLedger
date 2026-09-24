@@ -30,6 +30,8 @@ def get_demo_telemetry(scenario: str = "normal") -> Dict[str, Any]:
         procs = 210
         threads = 2850
         temp = 72.0 + (wave * 12.0)
+        brightness = 100.0
+        saver = 0
     elif scenario == "optimized":
         cpu = 18.0 + (wave * 8.0)
         mem = 48.0 + (wave * 4.0)
@@ -37,6 +39,8 @@ def get_demo_telemetry(scenario: str = "normal") -> Dict[str, Any]:
         procs = 135
         threads = 1680
         temp = 43.0 + (wave * 4.0)
+        brightness = 35.0
+        saver = 1
     else:  # normal
         cpu = 34.0 + (wave * 14.0)
         mem = 58.0 + (wave * 6.0)
@@ -44,6 +48,8 @@ def get_demo_telemetry(scenario: str = "normal") -> Dict[str, Any]:
         procs = 162
         threads = 2150
         temp = 52.0 + (wave * 6.0)
+        brightness = 80.0
+        saver = 0
 
     return {
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -60,7 +66,11 @@ def get_demo_telemetry(scenario: str = "normal") -> Dict[str, Any]:
         "uptime": 14.2,
         "gpu_name": "Intel Arc Graphics (Simulated Demo)",
         "gpu_utilization": round(12.0 + (wave * 15.0), 1),
-        "cpu_frequency": round(2600.0 + (wave * 400.0), 1),
+        # Frequency follows the v1.1.0 generator model (1200 + 25u, x0.82 saver)
+        # so demo deltas behave like the trained physics.
+        "cpu_frequency": round((1200.0 + 25.0 * cpu) * (0.82 if saver else 1.0), 1),
+        "screen_brightness": brightness,
+        "power_saver_active": saver,
         "cpu_per_core": [round(cpu + ((i % 3 - 1) * 5), 1) for i in range(8)],
         "memory_used_gb": round((mem / 100.0) * 16.0, 1),
         "memory_total_gb": 16.0,

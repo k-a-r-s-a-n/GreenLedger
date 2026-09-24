@@ -6,7 +6,7 @@
  * credits, badges, marketplace); local UI state stays in components.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 export function Providers({ children }: { children: React.ReactNode }) {
   // Create the client inside state so it is stable across server and
@@ -24,12 +24,11 @@ export function Providers({ children }: { children: React.ReactNode }) {
       })
   );
 
-  // Auto-boot services if not running when user accesses the app
-  useState(() => {
-    if (typeof window !== "undefined") {
-      fetch("/api/start-services").catch(() => {});
-    }
-  });
+  // Auto-boot services if not running when user accesses the app.
+  // A side effect, so it belongs in useEffect — never in a state initializer.
+  useEffect(() => {
+    fetch("/api/start-services").catch(() => {});
+  }, []);
 
   return (
     <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>

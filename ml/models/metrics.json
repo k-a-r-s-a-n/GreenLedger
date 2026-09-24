@@ -1,36 +1,40 @@
 {
-  "r2": 0.9759,
-  "mae_watts": 0.968,
-  "rmse_watts": 1.2113,
-  "mape_percent": 4.1,
-  "best_iteration": 112,
+  "r2": 0.9592,
+  "mae_watts": 0.9808,
+  "rmse_watts": 1.2218,
+  "mape_percent": 4.46,
+  "best_iteration": 249,
   "train_samples": 8500,
   "test_samples": 1500,
   "hyperparameters": {
-    "max_depth": 5,
+    "max_depth": 4,
     "learning_rate": 0.05,
-    "n_estimators": 300,
-    "subsample": 0.85,
-    "colsample_bytree": 0.9,
+    "n_estimators": 250,
+    "subsample": 0.8,
+    "colsample_bytree": 0.8,
     "reg_alpha": 0.1,
     "reg_lambda": 1.0
   },
   "feature_importances": {
-    "cpu_utilization": 0.8228499889373779,
-    "resource_pressure": 0.0847100019454956,
-    "cpu_memory_ratio": 0.08045999705791473,
-    "memory_usage": 0.004430000204592943,
-    "disk_io": 0.0017000000225380063,
-    "thread_count": 0.0015300000086426735,
-    "uptime": 0.001500000013038516,
-    "process_count": 0.0014100000262260437,
-    "process_thread_ratio": 0.0014100000262260437
+    "freq_util_product": 0.7218999862670898,
+    "cpu_frequency": 0.11525999754667282,
+    "cpu_utilization": 0.07421000301837921,
+    "resource_pressure": 0.03654000163078308,
+    "screen_brightness": 0.024940000846982002,
+    "power_saver_active": 0.014820000156760216,
+    "memory_usage": 0.004619999788701534,
+    "cpu_memory_ratio": 0.0026000000070780516,
+    "uptime": 0.001069999998435378,
+    "thread_count": 0.0010499999625608325,
+    "process_thread_ratio": 0.0010100000072270632,
+    "process_count": 0.0010100000072270632,
+    "disk_io": 0.0009800000116229057
   },
   "dataset_metadata": {
-    "source": "C:\\Users\\VISHAL KHUMAR P D\\Desktop\\GreenLedger\\ml\\data\\raw\\sample_it_metrics.csv",
+    "source": "ml/data/raw/sample_it_metrics.csv",
     "is_synthetic": true,
     "total_rows": 10000
   },
-  "training_time_seconds": 1.82,
-  "evaluated_at": "2026-09-03T16:49:22Z"
+  "training_time_seconds": 1.04,
+  "evaluated_at": "2026-09-24T09:05:59Z"
 }

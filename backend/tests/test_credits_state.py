@@ -33,6 +33,16 @@ def test_new_user_gets_welcome_balance(service):
     assert state.credit_balance == 100
 
 
+def test_participation_does_not_extend_streak_or_count(service):
+    """Anti-farming: sub-threshold cycles award points but no streak/count."""
+    earned = service.award_participation(user_id="p1")
+    assert earned == 5
+    state = service.get_user_state("p1")
+    assert state.current_streak_days == 0
+    assert state.total_optimizations == 0
+    assert state.credit_balance == 105  # welcome 100 + 5
+
+
 def test_streak_starts_at_one_on_first_cycle(service):
     service.calculate_optimization_reward("test_action", reduction_pct=10.0, co2_saved_g=5.0, user_id="s1")
     assert service.get_user_state("s1").current_streak_days == 1

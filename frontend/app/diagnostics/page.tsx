@@ -91,10 +91,10 @@ export default function DiagnosticsPage() {
                   <Sparkles className="w-4 h-4 text-emerald-400" />
                 </div>
                 <h3 className="font-display text-2xl text-white tracking-display mt-2">
-                  XGBoost Regressor v1.0.0
+                  XGBoost Regressor v{diagnostics?.schema?.version ?? "…"}
                 </h3>
                 <p className="text-xs text-white/60 mt-2 leading-relaxed font-mono">
-                  Multi-objective loss function with dynamic CMOS capacitance modeling. Guarded against out-of-distribution hardware anomaly spikes.
+                  Gradient-boosted regression on physics-inspired features (squared-error objective, early stopping). Guarded against out-of-distribution hardware anomaly spikes.
                 </p>
               </div>
 

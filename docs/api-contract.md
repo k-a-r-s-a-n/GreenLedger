@@ -72,7 +72,7 @@ missing).
 ```json
 {
   "estimated_power_w": 42.1,
-  "model_version": "1.0.0",
+  "model_version": "1.1.0",
   "warnings": [],
   "inference_latency_ms": 1.234,
   "feature_contributions": { "cpu_utilization": 12.3 },
@@ -123,7 +123,7 @@ fetched from the agent). **200**: `OptimizationRecommendation[]`:
   "memory_percent": null
 }]
 ```
-Only safe action ids are ever recommended: `enable_power_saver` or `close_process_<pid>`.
+Only safe action ids are ever recommended: `enable_power_saver`, `eco_mode`, or `close_process_<pid>`.
 
 ### `POST /api/optimization/evaluate-delta`
 Request `DeltaEvaluationRequest`:
@@ -153,9 +153,11 @@ Request `DeltaEvaluationRequest`:
 ```
 
 **Anti-abuse rules enforced server-side:**
-1. **Safe action whitelist** — only `enable_power_saver`, `trim_working_sets`,
-   `reduce_brightness`, or `close_process_<numeric pid>` are accepted; anything
-   else → **422**.
+1. **Safe action whitelist** — only `enable_power_saver`,
+   `reduce_brightness`, `cap_cpu_55`, `eco_mode`, or `close_process_<numeric pid>`
+   are accepted; anything else → **422**. (Former `trim_working_sets` entry
+   removed: it had no implementation anywhere and could have earned credits
+   without executing.)
 2. **Live telemetry required** — `before_telemetry`/`after_telemetry` must carry
    `is_live: true` → otherwise **422**.
 3. **Cooldown** — at least 20 seconds between accepted cycles per user → otherwise
@@ -167,7 +169,8 @@ Request `DeltaEvaluationRequest`:
 
 Credits: reductions ≥ 3% earn the reward formula (base 10 + % reduction + CO2 bonus +
 streak bonus); sub-threshold cycles earn 5 participation credits. Both paths respect the
-cooldown and replay rules.
+cooldown and replay rules. Anti-farming: participation credits do NOT extend the
+streak or count toward `total_optimizations` — only verified (≥3%) reductions do.
 
 Errors: **422** (whitelist/identical/duplicate/non-live), **429** (cooldown), **503**
 (power model unavailable).
@@ -284,8 +287,8 @@ endpoint fails closed with **503** rather than guessing.
   (defaults to localhost:3000 + greenledger.vercel.app; never `*` with credentials).
 - `VERCEL_FRONTEND_URL` — deployed frontend origin added to the backend CORS policy.
 - `ENVIRONMENT` — reported by `/health`.
-- `CARBON_INTENSITY_KG_PER_KWH` — default grid factor (0.385 US eGRID average; also the
-  in-code default used by `services/carbon/calculator.py`).
+- `CARBON_INTENSITY_KG_PER_KWH` — default grid factor read by
+  `services/carbon/calculator.py` (0.385 US eGRID average when unset/invalid).
 
 ## Out of Scope for This Contract
 
