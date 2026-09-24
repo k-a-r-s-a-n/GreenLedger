@@ -290,8 +290,8 @@ is written.
 
 - `ml/scripts/train.py` → `ml/models/{power_model,metrics}.json`
 - `ml/scripts/benchmark.py` → `ml/reports/model_benchmark.json`
-- `ml/scripts/temporal_dataset.py` + `train_temporal.py` → `temporal_lstm.pt`, `temporal_benchmark.json`
-- `ml/scripts/evaluate_actions.py` → `eco_evaluation.json`
+- `ml/scripts/temporal_dataset.py --episodes 1500` + `train_temporal.py` → `temporal_lstm.pt`, `temporal_benchmark.json`
+- `ml/scripts/evaluate_actions.py --persona all` → `eco_evaluation.json`
 - `ml/scripts/summarize_results.py` → `results_summary.json` (this draft's source)
 - Backend: 69 tests (`pytest backend/tests/`); frontend: `tsc --noEmit`.
 
