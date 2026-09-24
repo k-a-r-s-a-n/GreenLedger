@@ -258,3 +258,32 @@ Full-repo line-by-line re-read; all findings fixed before any new work.
   math unit-verified with simulated samples; `tsc` clean.
 - Not verifiable here: CIM capacity probe + drain collector on real Windows
   hardware (needs the live agent on battery power).
+
+---
+
+## Phase 2 — Temporal Uncertainty (2026-09-24)
+
+Rival-beating check: a per-tick point estimate cannot say "I don't know".
+Phase 2 adds a quantile LSTM over trailing telemetry with calibrated 80%
+prediction intervals, served as an optional complement to XGBoost.
+
+- **Episodes** (`ml/scripts/temporal_dataset.py`): 1,500 × 30 ticks, AR(1)
+  regimes + cap/brightness/app-close events, v1.1 physics.
+- **Model** (`ml/scripts/train_temporal.py`): 2-layer LSTM-128, q10/q50/q90
+  pinball heads, episode-level 70/15/15. Artifact `temporal_lstm.pt` v2.0.0.
+- **Results** (`ml/reports/temporal_benchmark.json`): LSTM median MAE **0.99W**
+  vs XGB-tick 1.33W vs XGB-window 1.13W; coverage 0.799 (target 0.80);
+  calibration 0.096/0.501/0.895. Deterministic retrain verified.
+- **Serving**: `POST /api/ml/predict-sequence` (503 without torch/artifact);
+  delta eval accepts `before_window`/`after_window`, returns interval fields
+  + `reduction_significant` in the transition log. Dashboard + verify card
+  show intervals; payouts unchanged (point rule).
+- **Caveat (reported, not buried)**: the LSTM-vs-XGB gap is on synthetic
+  episodes whose smooth noise favors recurrence; real-hardware validation
+  against drain-rate ground truth is the next bar.
+
+### Verification (Linux sandbox)
+- Backend suite **61/61** (sequence-contract + windowed-delta tests);
+  `tsc` clean; end-to-end smoke (5-tick window → intervals; delta with
+  windows → non-overlapping intervals on a 33% reduction).
+- Not verifiable here: interval calibration on live Windows telemetry.

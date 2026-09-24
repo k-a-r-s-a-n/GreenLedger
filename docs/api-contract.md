@@ -83,6 +83,24 @@ missing).
 Errors: **422** (required telemetry unavailable), **503** (model artifact missing —
 `feature_schema.json`/`power_model.json` not found in `ml/models/`).
 
+### `POST /api/ml/predict-sequence` (Phase 2)
+Request `SequencePredictRequest`: `{ "telemetry_window": [TelemetryInput, ...] }`
+(1–120 ticks, oldest first). **200** `SequencePredictResponse` — quantiles for
+the LAST tick:
+```json
+{
+  "q10_w": 25.72,
+  "median_w": 27.33,
+  "q90_w": 28.87,
+  "interval_80_w": [25.72, 28.87],
+  "window_ticks": 5,
+  "model_version": "2.0.0",
+  "warnings": []
+}
+```
+Errors: **422** (empty window), **503** (temporal model unavailable — torch or
+`temporal_lstm.pt` missing; callers degrade to the point estimate).
+
 ### `GET /api/ml/diagnostics`
 Model metadata and metrics (`model_loaded`, `schema`, `metrics`); `schema`/`metrics` are
 `null` when the model was never trained/loaded.
@@ -132,10 +150,13 @@ Request `DeltaEvaluationRequest`:
   "action_id": "enable_power_saver",
   "before_telemetry": { "...": "...", "is_live": true },
   "after_telemetry": { "...": "...", "is_live": true },
-  "user_id": "default_user"
+  "user_id": "default_user",
+  "before_window": [{ "...": "raw samples behind the before median" }],
+  "after_window": [{ "...": "raw samples behind the after median" }]
 }
 ```
-**200** `BeforeAfterComparison`:
+Optional `before_window`/`after_window` (Phase 2) enable 80% power intervals
+behind each snapshot. **200** `BeforeAfterComparison`:
 ```json
 {
   "action_id": "enable_power_saver",
@@ -148,9 +169,14 @@ Request `DeltaEvaluationRequest`:
   "new_credit_balance": 125,
   "streak_days": 1,
   "action_hash": "9f2c...",
-  "unlocked_badge": null
+  "unlocked_badge": null,
+  "before_power_interval_80": [44.2, 48.0],
+  "after_power_interval_80": [38.1, 41.5]
 }
 ```
+Interval fields are `null` when windows were not supplied or the temporal
+model is unavailable. Payouts follow the verified point reduction; intervals
+inform the significance reading (non-overlap ⇒ clear effect).
 
 **Anti-abuse rules enforced server-side:**
 1. **Safe action whitelist** — only `enable_power_saver`,

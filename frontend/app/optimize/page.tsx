@@ -56,7 +56,10 @@ type WindowTelemetry = TelemetryData & {
   _memory_stddev: number;
 };
 
-async function collectLiveTelemetryWindow(): Promise<WindowTelemetry> {
+async function collectLiveTelemetryWindow(): Promise<{
+  snapshot: WindowTelemetry;
+  samples: TelemetryData[];
+}> {
   const samples: TelemetryData[] = [];
   for (let index = 0; index < 3; index += 1) {
     samples.push(await fetchTelemetry());
@@ -79,7 +82,7 @@ async function collectLiveTelemetryWindow(): Promise<WindowTelemetry> {
     );
   };
   const first = samples[0];
-  return {
+  const snapshot: WindowTelemetry = {
     ...first,
     timestamp: samples[samples.length - 1].timestamp,
     cpu_utilization: median(samples.map((sample) => sample.cpu_utilization)),
@@ -111,6 +114,9 @@ async function collectLiveTelemetryWindow(): Promise<WindowTelemetry> {
     _cpu_stddev: standardDeviation(samples.map((sample) => sample.cpu_utilization)),
     _memory_stddev: standardDeviation(samples.map((sample) => sample.memory_usage)),
   };
+  // Raw samples ride along so the server can run temporal intervals behind
+  // each median snapshot (Phase 2); medians remain the verified quantities.
+  return { snapshot, samples };
 }
 
 export default function OptimizePage() {
@@ -159,10 +165,12 @@ export default function OptimizePage() {
       const after = await collectLiveTelemetryWindow();
       const comparison: BeforeAfterResult = await evaluateOptimizationDelta(
         opportunity.id,
-        before,
-        after
+        before.snapshot,
+        after.snapshot,
+        "default_user",
+        { before_window: before.samples, after_window: after.samples }
       );
-      return { comparison, before, after };
+      return { comparison, before: before.snapshot, after: after.snapshot };
     },
     onSuccess: ({ comparison, before, after }) => {
       setResult({ comparison, before, after });

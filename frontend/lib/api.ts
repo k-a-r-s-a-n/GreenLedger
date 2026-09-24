@@ -14,6 +14,7 @@
 import {
   TelemetryData,
   PredictionResult,
+  SequencePredictionResult,
   OptimizationOpportunity,
   BeforeAfterResult,
   UserCreditState,
@@ -185,6 +186,33 @@ export async function predictPower(telemetry: TelemetryData): Promise<Prediction
   if (typeof result?.estimated_power_w !== "number") {
     warnContractMismatch("POST /api/ml/predict", "missing estimated_power_w");
     throw new ApiError(502, "Power model returned no estimate.");
+  }
+  return result;
+}
+
+/**
+ * POST /api/ml/predict-sequence — temporal LSTM quantiles for the last tick
+ * of a trailing telemetry window. 503 when torch/artifact is unavailable
+ * (callers degrade to the point estimate; intervals are a complement).
+ */
+export async function predictSequence(
+  window: TelemetryData[]
+): Promise<SequencePredictionResult> {
+  const result = await request<SequencePredictionResult>(
+    "/api/ml/predict-sequence",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ telemetry_window: window }),
+      timeoutMs: 8000,
+    }
+  );
+  if (
+    typeof result?.median_w !== "number" ||
+    !Array.isArray(result?.interval_80_w)
+  ) {
+    warnContractMismatch("POST /api/ml/predict-sequence", "missing quantiles");
+    throw new ApiError(502, "Temporal model returned no intervals.");
   }
   return result;
 }
@@ -557,7 +585,8 @@ export async function evaluateOptimizationDelta(
   actionId: string,
   before: TelemetryData,
   after: TelemetryData,
-  userId: string = "default_user"
+  userId: string = "default_user",
+  windows?: { before_window?: TelemetryData[]; after_window?: TelemetryData[] }
 ): Promise<BeforeAfterResult> {
   return request<BeforeAfterResult>(
     "/api/backend/optimization/evaluate-delta",
@@ -569,6 +598,8 @@ export async function evaluateOptimizationDelta(
         before_telemetry: before,
         after_telemetry: after,
         user_id: userId,
+        ...(windows?.before_window ? { before_window: windows.before_window } : {}),
+        ...(windows?.after_window ? { after_window: windows.after_window } : {}),
       }),
     }
   );

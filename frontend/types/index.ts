@@ -80,6 +80,18 @@ export interface BeforeAfterResult {
   streak_days: number;
   action_hash: string;
   unlocked_badge?: string | null;
+  before_power_interval_80?: [number, number] | null;
+  after_power_interval_80?: [number, number] | null;
+}
+
+export interface SequencePredictionResult {
+  q10_w: number;
+  median_w: number;
+  q90_w: number;
+  interval_80_w: [number, number];
+  window_ticks: number;
+  model_version: string;
+  warnings: string[];
 }
 
 export interface UserCreditState {

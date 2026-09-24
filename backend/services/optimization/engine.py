@@ -19,6 +19,7 @@ from typing import Dict, Any, List, Optional
 
 from schemas.models import OptimizationRecommendation, BeforeAfterComparison
 from services.ml.inference import ml_engine
+from services.ml.temporal import temporal_engine
 from services.carbon.calculator import calculate_savings
 from services.credits.rewards import credit_service
 
@@ -200,7 +201,9 @@ class OptimizationEngineService:
         action_id: str,
         before_telemetry: Dict[str, Any],
         after_telemetry: Dict[str, Any],
-        user_id: str = "default_user"
+        user_id: str = "default_user",
+        before_window: Optional[List[Dict[str, Any]]] = None,
+        after_window: Optional[List[Dict[str, Any]]] = None
     ) -> BeforeAfterComparison:
         """
         Calculates honest before-vs-after ML power estimation delta.
@@ -298,7 +301,19 @@ class OptimizationEngineService:
 
         user_state = credit_service.get_user_state(user_id)
 
-        # 8. Transition log: (state, action, outcome) for offline learning.
+        # 8. Temporal intervals (Phase 2): when the caller supplied the raw
+        # sample windows behind each median, quantify each snapshot with an 80%
+        # interval. Missing windows / model -> nulls, never guesses. Intervals
+        # inform the significance flag; payouts still follow the point rule.
+        before_interval = self._window_interval(before_window)
+        after_interval = self._window_interval(after_window)
+        reduction_significant = (
+            before_interval is not None
+            and after_interval is not None
+            and before_interval[0] > after_interval[1]
+        )
+
+        # 9. Transition log: (state, action, outcome) for offline learning.
         # Participation cycles are logged too — verified non-effects are data.
         _log_transition({
             "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -314,6 +329,9 @@ class OptimizationEngineService:
             "co2_saved_g": savings["co2_saved_g"],
             "credits_awarded": credits_earned,
             "action_hash": telemetry_hash,
+            "before_interval_80": before_interval,
+            "after_interval_80": after_interval,
+            "reduction_significant": reduction_significant,
         })
 
         return BeforeAfterComparison(
@@ -327,8 +345,20 @@ class OptimizationEngineService:
             new_credit_balance=user_state.credit_balance,
             streak_days=user_state.current_streak_days,
             action_hash=telemetry_hash,
-            unlocked_badge=user_state.recent_transactions[-1].get("unlocked_badge") if user_state.recent_transactions else None
+            unlocked_badge=user_state.recent_transactions[-1].get("unlocked_badge") if user_state.recent_transactions else None,
+            before_power_interval_80=before_interval,
+            after_power_interval_80=after_interval
         )
+
+    @staticmethod
+    def _window_interval(window: Optional[List[Dict[str, Any]]]) -> Optional[List[float]]:
+        """80% power interval for a sample window, or None when unavailable."""
+        if not window or not temporal_engine.available:
+            return None
+        try:
+            return temporal_engine.predict_window(window)["interval_80_w"]
+        except (ValueError, RuntimeError):
+            return None
 
 
 optimization_service = OptimizationEngineService()

@@ -84,6 +84,7 @@ Trained using `ml/scripts/train.py` on 10,000 samples with a small documented gr
 - `ml/models/power_model.json` (Trained XGBoost Regressor)
 - `ml/models/feature_schema.json` (Strict feature ordering & training bounds)
 - `ml/models/metrics.json` (Audit trail of test evaluation metrics)
+- `ml/models/temporal_lstm.pt` (Phase 2 quantile LSTM — 80% power intervals)
 
 ---
 

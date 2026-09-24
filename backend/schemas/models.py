@@ -92,11 +92,32 @@ class OptimizationExecuteRequest(BaseModel):
     params: Optional[Dict[str, Any]] = None
 
 
+class SequencePredictRequest(BaseModel):
+    """A trailing telemetry window (oldest first, 1-120 ticks) for the
+    temporal LSTM. Intervals describe the LAST tick."""
+    telemetry_window: List[Dict[str, Any]] = Field(..., min_length=1, max_length=120)
+
+
+class SequencePredictResponse(BaseModel):
+    q10_w: float
+    median_w: float
+    q90_w: float
+    interval_80_w: List[float]
+    window_ticks: int
+    model_version: str
+    warnings: List[str] = []
+
+
 class DeltaEvaluationRequest(BaseModel):
     action_id: str
     before_telemetry: Dict[str, Any]
     after_telemetry: Dict[str, Any]
     user_id: str = "default_user"
+    # Optional raw sample windows behind each median snapshot; when supplied
+    # (and the temporal model is available) the response carries 80% power
+    # intervals for honest significance reading.
+    before_window: Optional[List[Dict[str, Any]]] = None
+    after_window: Optional[List[Dict[str, Any]]] = None
 
 
 class BeforeAfterComparison(BaseModel):
@@ -111,6 +132,10 @@ class BeforeAfterComparison(BaseModel):
     streak_days: int
     action_hash: str
     unlocked_badge: Optional[str] = None
+    # 80% power intervals [lo, hi] for each snapshot, when the caller supplied
+    # sample windows and the temporal model is available; else null.
+    before_power_interval_80: Optional[List[float]] = None
+    after_power_interval_80: Optional[List[float]] = None
 
 
 class GreenCreditState(BaseModel):

@@ -46,7 +46,9 @@ def evaluate_optimization_delta(req: DeltaEvaluationRequest):
             action_id=req.action_id,
             before_telemetry=req.before_telemetry,
             after_telemetry=req.after_telemetry,
-            user_id=req.user_id
+            user_id=req.user_id,
+            before_window=req.before_window,
+            after_window=req.after_window
         )
     except CooldownActiveError as exc:
         raise HTTPException(
