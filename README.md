@@ -70,20 +70,33 @@ flowchart TD
 
 ## Machine Learning Pipeline & Verified Results
 
-Trained using `ml/scripts/train.py` on 10,000 samples with hyperparameter cross-validation, 70/15/15 train-val-test split, and early stopping:
+Trained using `ml/scripts/train.py` on 10,000 samples with a small documented grid search (4 candidates, validation RMSE), a 70/15/15 train/val/test split (seed 42), and early stopping:
 
 | Metric | Verified Test-Set Result | Description |
 |---|---|---|
 | **$R^2$ Score** | See `ml/models/metrics.json` | Computed from the current held-out test split |
 | **Mean Absolute Error (MAE)** | See `ml/models/metrics.json` | Computed from the current held-out test split |
 | **Root Mean Squared Error (RMSE)** | See `ml/models/metrics.json` | Computed from the current held-out test split |
-| **Percentage Error (MAPE)** | **4.10%** | Current synthetic held-out test split in `ml/models/metrics.json` |
+| **Percentage Error (MAPE)** | **4.46%** | Current synthetic held-out test split in `ml/models/metrics.json` (schema v1.1.0) |
 | **Inference Latency** | Runtime-measured | Recorded per request; not a training metric |
 
 ### Model Artifacts Saved:
 - `ml/models/power_model.json` (Trained XGBoost Regressor)
 - `ml/models/feature_schema.json` (Strict feature ordering & training bounds)
 - `ml/models/metrics.json` (Audit trail of test evaluation metrics)
+- `ml/models/temporal_lstm.pt` (Phase 2 quantile LSTM — 80% power intervals)
+
+---
+
+## Research & Publication Package (Phase 4)
+
+- `docs/paper.md` — paper draft; every number cites `ml/reports/results_summary.json`
+- `docs/invention-disclosure.md` — provisional-style disclosure (5 concepts + claim sketches)
+- `docs/patent-landscape.md` — prior-art survey with white-space analysis
+- `docs/field-protocol.md` — the real-hardware validation program (drain calibration → metered trials → fitted constants → offline policy)
+- `ml/scripts/summarize_results.py` — regenerates the results summary the paper cites
+
+Standing rule: no number enters the paper except through the summary script.
 
 ---
 
@@ -131,9 +144,10 @@ $$\text{Credits} = 10\ (\text{Base}) + \lfloor\text{Power Drop \%}\rfloor + \lfl
 
 ## Web3 & Sepolia Smart Contract
 
-- **Contract**: `GreenBadge.sol` (OpenZeppelin-compatible ERC-1155 Multi-Token Standard).
+- **Contract**: `GreenBadge.sol` (ERC-1155 Multi-Token Standard with ERC-165 detection, approvals, and single/batch transfers).
 - **Network**: Ethereum Sepolia Testnet (Chain ID: `11155111`).
 - **Target Address**: `0x71C234Ea533F96507A5F44265E923C47131B64E6`.
+- **Minting**: any wallet self-claims its own badges exactly once per token ID (owner may also relay-mint). Marketplace self-claim requires a deployment of the current contract — older owner-only deployments must be redeployed.
 - **Badges**:
   1. 🌱 `Token #1`: First Optimization (Common)
   2. ⚡ `Token #2`: Power Saver (Rare)

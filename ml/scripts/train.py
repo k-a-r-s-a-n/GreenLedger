@@ -1,7 +1,8 @@
 """
 GreenLedger - XGBoost Power Consumption Training Pipeline
-Loads dataset, conducts feature engineering, optimizes hyperparameters,
-evaluates on held-out test data, and saves model artifacts and metrics.
+Loads dataset, conducts feature engineering, runs a small documented grid
+search (4 candidates) on a validation split, trains 70/15/15 train/val/test
+(seed 42), evaluates on held-out test data, and saves model artifacts.
 """
 
 import os
@@ -17,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import train_test_split, KFold
+from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_absolute_error, root_mean_squared_error, r2_score, mean_absolute_percentage_error
 import xgboost as xgb
 
@@ -34,6 +35,40 @@ logger = logging.getLogger("GreenLedger.MLTrain")
 
 MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
 REPORTS_DIR = Path(__file__).resolve().parent.parent / "reports"
+
+# Physical limits per feature: (low, high), None = unbounded. Used to intersect
+# the OOD guard bounds so they can never exceed what the mapper clips to.
+_PHYSICAL_BOUNDS = {
+    "cpu_utilization": (0.0, 100.0),
+    "memory_usage": (0.0, 100.0),
+    "screen_brightness": (0.0, 100.0),
+    "power_saver_active": (0.0, 1.0),
+    "disk_io": (0.0, None),
+    "process_count": (1.0, None),
+    "thread_count": (1.0, None),
+    "uptime": (0.01, None),
+    "cpu_frequency": (400.0, 6000.0),
+    "cpu_memory_ratio": (0.0, None),
+    "process_thread_ratio": (0.0, None),
+    "resource_pressure": (0.0, None),
+    "freq_util_product": (0.0, None),
+}
+
+
+def _ood_bounds(series, phys_lo, phys_hi) -> Dict[str, float]:
+    """Observed stats plus OOD guard bounds: observed extremes widened by a 3σ
+    margin, intersected with physical limits. Raw min/max alone false-trigger
+    on real machines (boost clocks, long uptimes, >83% CPU spikes)."""
+    lo, hi = float(series.min()), float(series.max())
+    std = float(series.std())
+    ood_min = lo - 3.0 * std
+    ood_max = hi + 3.0 * std
+    if phys_lo is not None:
+        ood_min = max(phys_lo, ood_min)
+    if phys_hi is not None:
+        ood_max = min(phys_hi, ood_max)
+    return {"min": lo, "max": hi, "mean": float(series.mean()), "std": std,
+            "ood_min": ood_min, "ood_max": ood_max}
 
 
 def train_power_model(dataset_path: str = None) -> Dict[str, Any]:
@@ -108,6 +143,10 @@ def train_power_model(dataset_path: str = None) -> Dict[str, Any]:
     logger.info(f"Best hyperparameters selected: {best_params} (Val RMSE: {best_val_rmse:.4f} W)")
     
     # 5. Final Model Training on Full Train+Val
+    # The held-out TEST split must never influence training — not even via
+    # early stopping. The final fit therefore early-stops on the validation
+    # split (already used for hyperparameter selection) and the test split is
+    # touched exactly once, in step 6, for the reported metrics.
     final_model = xgb.XGBRegressor(
         objective="reg:squarederror",
         random_state=42,
@@ -116,10 +155,10 @@ def train_power_model(dataset_path: str = None) -> Dict[str, Any]:
         eval_metric="rmse",
         **best_params
     )
-    
+
     final_model.fit(
         X_train_val, y_train_val,
-        eval_set=[(X_test, y_test)],
+        eval_set=[(X_val, y_val)],
         verbose=False
     )
     
@@ -152,19 +191,18 @@ def train_power_model(dataset_path: str = None) -> Dict[str, Any]:
     # B. Feature Schema JSON
     schema_path = MODELS_DIR / "feature_schema.json"
     schema_data = {
-        "version": "1.0.0",
+        "version": "1.1.0",
+        "changelog": "v1.1.0 adds screen_brightness, cpu_frequency, power_saver_active + freq_util_product so display and DVFS/power-plan effects are measurable (v1.0 was blind to them).",
         "features": ALL_MODEL_FEATURES,
         "base_features": BASE_MODEL_FEATURES,
         "engineered_features": ENGINEERED_FEATURES,
         "target": "power_consumption",
         "target_unit": "Watts",
+        # OOD guard bounds: observed extremes widened by a 3σ margin (see
+        # _ood_bounds). Raw min/max alone false-trigger on real machines
+        # (boost clocks, long uptimes, >83% CPU spikes).
         "feature_ranges": {
-            col: {
-                "min": float(X[col].min()),
-                "max": float(X[col].max()),
-                "mean": float(X[col].mean()),
-                "std": float(X[col].std())
-            }
+            col: _ood_bounds(X[col], *_PHYSICAL_BOUNDS.get(col, (None, None)))
             for col in ALL_MODEL_FEATURES
         }
     }

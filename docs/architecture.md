@@ -57,4 +57,4 @@ Web browsers cannot access arbitrary operating system hardware counters directly
 
 ### 3. Off-Chain Heavy Compute, On-Chain Ownership
 - Real-time telemetry, preprocessing, XGBoost inference, and optimization execution remain 100% off-chain for microsecond latency and zero gas costs.
-- The Ethereum Sepolia blockchain is utilized strictly for **non-custodial achievement verification** via OpenZeppelin ERC-1155 tokens.
+- The Ethereum Sepolia blockchain is utilized strictly for **non-custodial achievement verification** via ERC-1155 badge tokens (self-claimed by the earning wallet, one per badge).

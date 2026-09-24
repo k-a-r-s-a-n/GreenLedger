@@ -72,7 +72,7 @@ missing).
 ```json
 {
   "estimated_power_w": 42.1,
-  "model_version": "1.0.0",
+  "model_version": "1.1.0",
   "warnings": [],
   "inference_latency_ms": 1.234,
   "feature_contributions": { "cpu_utilization": 12.3 },
@@ -82,6 +82,24 @@ missing).
 
 Errors: **422** (required telemetry unavailable), **503** (model artifact missing —
 `feature_schema.json`/`power_model.json` not found in `ml/models/`).
+
+### `POST /api/ml/predict-sequence` (Phase 2)
+Request `SequencePredictRequest`: `{ "telemetry_window": [TelemetryInput, ...] }`
+(1–120 ticks, oldest first). **200** `SequencePredictResponse` — quantiles for
+the LAST tick:
+```json
+{
+  "q10_w": 25.72,
+  "median_w": 27.33,
+  "q90_w": 28.87,
+  "interval_80_w": [25.72, 28.87],
+  "window_ticks": 5,
+  "model_version": "2.0.0",
+  "warnings": []
+}
+```
+Errors: **422** (empty window), **503** (temporal model unavailable — torch or
+`temporal_lstm.pt` missing; callers degrade to the point estimate).
 
 ### `GET /api/ml/diagnostics`
 Model metadata and metrics (`model_loaded`, `schema`, `metrics`); `schema`/`metrics` are
@@ -120,10 +138,15 @@ fetched from the agent). **200**: `OptimizationRecommendation[]`:
   "pid": null,
   "process_name": null,
   "cpu_percent": null,
-  "memory_percent": null
+  "memory_percent": null,
+  "predicted_net_w": 2.48,
+  "prediction_basis": "8% of estimated power (plan-throttle heuristic v1)"
 }]
 ```
-Only safe action ids are ever recommended: `enable_power_saver` or `close_process_<pid>`.
+Only safe action ids are ever recommended: `enable_power_saver`, `eco_mode`, or `close_process_<pid>`.
+`predicted_net_w` is null when the power estimate is unavailable; actions
+failing the breakeven gate (≤ 0.25 W) or targeting the foreground process
+are withheld, not shown with zero.
 
 ### `POST /api/optimization/evaluate-delta`
 Request `DeltaEvaluationRequest`:
@@ -132,10 +155,14 @@ Request `DeltaEvaluationRequest`:
   "action_id": "enable_power_saver",
   "before_telemetry": { "...": "...", "is_live": true },
   "after_telemetry": { "...": "...", "is_live": true },
-  "user_id": "default_user"
+  "user_id": "default_user",
+  "before_window": [{ "...": "raw samples behind the before median" }],
+  "after_window": [{ "...": "raw samples behind the after median" }],
+  "predicted_net_w": 9.31
 }
 ```
-**200** `BeforeAfterComparison`:
+Optional `before_window`/`after_window` (Phase 2) enable 80% power intervals
+behind each snapshot. **200** `BeforeAfterComparison`:
 ```json
 {
   "action_id": "enable_power_saver",
@@ -148,14 +175,21 @@ Request `DeltaEvaluationRequest`:
   "new_credit_balance": 125,
   "streak_days": 1,
   "action_hash": "9f2c...",
-  "unlocked_badge": null
+  "unlocked_badge": null,
+  "before_power_interval_80": [44.2, 48.0],
+  "after_power_interval_80": [38.1, 41.5]
 }
 ```
+Interval fields are `null` when windows were not supplied or the temporal
+model is unavailable. Payouts follow the verified point reduction; intervals
+inform the significance reading (non-overlap ⇒ clear effect).
 
 **Anti-abuse rules enforced server-side:**
-1. **Safe action whitelist** — only `enable_power_saver`, `trim_working_sets`,
-   `reduce_brightness`, or `close_process_<numeric pid>` are accepted; anything
-   else → **422**.
+1. **Safe action whitelist** — only `enable_power_saver`,
+   `reduce_brightness`, `cap_cpu_55`, `eco_mode`, or `close_process_<numeric pid>`
+   are accepted; anything else → **422**. (Former `trim_working_sets` entry
+   removed: it had no implementation anywhere and could have earned credits
+   without executing.)
 2. **Live telemetry required** — `before_telemetry`/`after_telemetry` must carry
    `is_live: true` → otherwise **422**.
 3. **Cooldown** — at least 20 seconds between accepted cycles per user → otherwise
@@ -167,7 +201,8 @@ Request `DeltaEvaluationRequest`:
 
 Credits: reductions ≥ 3% earn the reward formula (base 10 + % reduction + CO2 bonus +
 streak bonus); sub-threshold cycles earn 5 participation credits. Both paths respect the
-cooldown and replay rules.
+cooldown and replay rules. Anti-farming: participation credits do NOT extend the
+streak or count toward `total_optimizations` — only verified (≥3%) reductions do.
 
 Errors: **422** (whitelist/identical/duplicate/non-live), **429** (cooldown), **503**
 (power model unavailable).
@@ -284,8 +319,8 @@ endpoint fails closed with **503** rather than guessing.
   (defaults to localhost:3000 + greenledger.vercel.app; never `*` with credentials).
 - `VERCEL_FRONTEND_URL` — deployed frontend origin added to the backend CORS policy.
 - `ENVIRONMENT` — reported by `/health`.
-- `CARBON_INTENSITY_KG_PER_KWH` — default grid factor (0.385 US eGRID average; also the
-  in-code default used by `services/carbon/calculator.py`).
+- `CARBON_INTENSITY_KG_PER_KWH` — default grid factor read by
+  `services/carbon/calculator.py` (0.385 US eGRID average when unset/invalid).
 
 ## Out of Scope for This Contract
 

@@ -31,9 +31,10 @@ import { StatCard } from "../../components/StatCard";
 import { Skeleton } from "../../components/Skeleton";
 import { ErrorPanel } from "../../components/ErrorPanel";
 import { Button } from "../../components/Button";
-import { useTelemetry, usePowerPrediction } from "../../hooks/useTelemetry";
+import { useTelemetry, usePowerPrediction, usePowerInterval } from "../../hooks/useTelemetry";
 import { useCarbonEstimate } from "../../hooks/useCarbon";
 import { ScrollDashboardDeck } from "../../components/ScrollDashboardDeck";
+import type { TelemetryData } from "../../types";
 
 interface HistoryPoint {
   time: string;
@@ -58,6 +59,16 @@ export default function DashboardPage() {
   const estimatedPower = prediction.data?.estimated_power_w ?? null;
   const carbon = useCarbonEstimate(estimatedPower);
   const carbonRatePerHour = carbon.data?.emissions_g_co2 ?? null;
+
+  // Trailing full-telemetry window (last 30 ticks) for the temporal LSTM.
+  // Each new tick re-keys the interval query exactly once.
+  const [tickWindow, setTickWindow] = useState<TelemetryData[]>([]);
+  React.useEffect(() => {
+    if (!telemetry) return;
+    setTickWindow((prev) => [...prev.slice(-29), telemetry]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [telemetry?.timestamp]);
+  const interval = usePowerInterval(tickWindow.length >= 3 ? tickWindow : null);
 
   // Rolling 25-tick history — derived from each accepted prediction tick.
   React.useEffect(() => {
@@ -180,6 +191,13 @@ export default function DashboardPage() {
             {prediction.data?.is_out_of_distribution && (
               <p className="mt-1 text-[11px] font-mono text-amber-300">
                 Out-of-distribution reading — treat with caution
+              </p>
+            )}
+            {interval.data && (
+              <p className="mt-1 text-[11px] font-mono text-cyan-300">
+                80% interval {interval.data.interval_80_w[0].toFixed(1)}–
+                {interval.data.interval_80_w[1].toFixed(1)} W · LSTM v
+                {interval.data.model_version} ({interval.data.window_ticks} ticks)
               </p>
             )}
           </GlassPanel>

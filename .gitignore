@@ -54,3 +54,7 @@ cache/
 # Large Datasets & Models
 ml/data/raw/*.csv
 !ml/data/raw/sample_it_metrics.csv
+
+# Transition log (Phase 1/2): runtime user data, never committed.
+ml/data/transitions/*.jsonl
+!ml/data/transitions/.gitkeep

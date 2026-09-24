@@ -25,8 +25,6 @@ import {
   Zap,
   ShieldCheck,
   ArrowRight,
-  AlertCircle,
-  Timer,
   RefreshCw,
 } from "lucide-react";
 import { Navbar } from "../../components/Navbar";
@@ -52,98 +50,16 @@ import { OptimizationOpportunity, BeforeAfterResult, TelemetryData } from "../..
 
 type FlowError = { message: string; retryAfterSeconds?: number };
 
-/** Local-mode opportunity from raw telemetry — mirrors the backend's logic. */
-function buildLocalRecommendations(
-  telemetry: TelemetryData
-): OptimizationOpportunity[] {
-  const recommendations: OptimizationOpportunity[] = [];
-  const topProcs = telemetry.top_cpu_processes || [];
-
-  // Protected system processes that must NEVER be recommended for termination
-  const protectedNames = new Set([
-    "system",
-    "system idle process",
-    "registry",
-    "smss.exe",
-    "csrss.exe",
-    "wininit.exe",
-    "services.exe",
-    "lsass.exe",
-    "svchost.exe",
-    "fontdrvhost.exe",
-    "winlogon.exe",
-    "dwm.exe",
-    "explorer.exe",
-    "sihost.exe",
-    "taskhostw.exe",
-    "spoolsv.exe",
-    "securityhealthservice.exe",
-    "msmpeng.exe",
-    "python.exe",
-    "cmd.exe",
-    "powershell.exe",
-    "conhost.exe",
-    "code.exe",
-  ]);
-
-  for (const p of topProcs) {
-    const name = (p.name || "").toLowerCase().trim();
-    const cpu = p.cpu_percent ?? 0;
-    const pid = p.pid;
-    // Skip system services, PID <= 4, or protected Windows tasks
-    if (!name || pid <= 4 || protectedNames.has(name)) {
-      continue;
-    }
-    if (cpu > 8.0) {
-      recommendations.push({
-        id: `close_process_${pid}`,
-        title: `Suspend High-CPU App: ${p.name}`,
-        category: "process_management",
-        priority: cpu > 20.0 ? "high" : "medium",
-        estimated_power_reduction_pct: null,
-        reversible: false,
-        description: `${p.name} is consuming ${cpu.toFixed(1)}% CPU cycles in the background.`,
-        action_name: `Close ${p.name}`,
-        pid: pid,
-        process_name: p.name,
-        cpu_percent: cpu,
-        memory_percent: p.memory_percent ?? 0,
-      });
-    }
-  }
-
-  recommendations.push({
-    id: "enable_power_saver",
-    title: "Enable Windows Energy Saver Profile",
-    category: "power_plan",
-    priority: "high",
-    estimated_power_reduction_pct: null,
-    reversible: true,
-    description: "Throttles aggressive core boost thresholds and reduces background indexers.",
-    action_name: "Switch Power Plan",
-  });
-
-  recommendations.push({
-    id: "reduce_brightness",
-    title: "Reduce Screen Brightness to 40%",
-    category: "display",
-    priority: "medium",
-    estimated_power_reduction_pct: null,
-    reversible: true,
-    description: "Requests a lower display brightness. Any power reduction must be measured after execution.",
-    action_name: "Reduce Brightness",
-  });
-
-  return recommendations;
-}
-
 type WindowTelemetry = TelemetryData & {
   _sample_count: number;
   _cpu_stddev: number;
   _memory_stddev: number;
 };
 
-async function collectLiveTelemetryWindow(): Promise<WindowTelemetry> {
+async function collectLiveTelemetryWindow(): Promise<{
+  snapshot: WindowTelemetry;
+  samples: TelemetryData[];
+}> {
   const samples: TelemetryData[] = [];
   for (let index = 0; index < 3; index += 1) {
     samples.push(await fetchTelemetry());
@@ -166,7 +82,7 @@ async function collectLiveTelemetryWindow(): Promise<WindowTelemetry> {
     );
   };
   const first = samples[0];
-  return {
+  const snapshot: WindowTelemetry = {
     ...first,
     timestamp: samples[samples.length - 1].timestamp,
     cpu_utilization: median(samples.map((sample) => sample.cpu_utilization)),
@@ -177,6 +93,17 @@ async function collectLiveTelemetryWindow(): Promise<WindowTelemetry> {
       median(samples.map((sample) => sample.thread_count ?? first.thread_count ?? 1))
     ),
     uptime: median(samples.map((sample) => sample.uptime)),
+    // v1.1 signals are levers too (brightness/freq/saver move watts) — median
+    // them like the rest instead of trusting a single first-sample value.
+    screen_brightness: median(
+      samples.map((sample) => sample.screen_brightness ?? first.screen_brightness ?? 70)
+    ),
+    cpu_frequency: median(
+      samples.map((sample) => sample.cpu_frequency ?? first.cpu_frequency ?? 3200)
+    ),
+    power_saver_active: Math.round(
+      median(samples.map((sample) => sample.power_saver_active ?? first.power_saver_active ?? 0))
+    ),
     power_meter_raw: (() => {
       const values = samples
         .map((sample) => sample.power_meter_raw)
@@ -187,6 +114,9 @@ async function collectLiveTelemetryWindow(): Promise<WindowTelemetry> {
     _cpu_stddev: standardDeviation(samples.map((sample) => sample.cpu_utilization)),
     _memory_stddev: standardDeviation(samples.map((sample) => sample.memory_usage)),
   };
+  // Raw samples ride along so the server can run temporal intervals behind
+  // each median snapshot (Phase 2); medians remain the verified quantities.
+  return { snapshot, samples };
 }
 
 export default function OptimizePage() {
@@ -235,10 +165,14 @@ export default function OptimizePage() {
       const after = await collectLiveTelemetryWindow();
       const comparison: BeforeAfterResult = await evaluateOptimizationDelta(
         opportunity.id,
-        before,
-        after
+        before.snapshot,
+        after.snapshot,
+        "default_user",
+        { before_window: before.samples, after_window: after.samples },
+        // Echo the card's prediction so the server can log predicted-vs-actual.
+        opportunity.predicted_net_w ?? undefined
       );
-      return { comparison, before, after };
+      return { comparison, before: before.snapshot, after: after.snapshot };
     },
     onSuccess: ({ comparison, before, after }) => {
       setResult({ comparison, before, after });
@@ -256,24 +190,27 @@ export default function OptimizePage() {
           message: `Cooldown active between optimization cycles — try again in ${seconds}s.`,
           retryAfterSeconds: seconds,
         });
-
-        const rollbackMutation = useMutation({
-          mutationFn: (actionId: string) => rollbackOptimizationAction(actionId, isLive),
-          onSuccess: () => {
-            setFlowError(null);
-            setResult(null);
-          },
-          onError: (err) => {
-            setFlowError({
-              message: err instanceof Error ? err.message : "Rollback failed.",
-            });
-          },
-        });
       } else {
         setFlowError({
           message: err instanceof Error ? err.message : "Optimization verification failed.",
         });
       }
+    },
+  });
+
+  // Rollback for reversible actions (power plan / brightness). Declared at the
+  // top level so the verified-result card can invoke it — hooks must never be
+  // created inside callbacks or conditional branches.
+  const rollbackMutation = useMutation({
+    mutationFn: (actionId: string) => rollbackOptimizationAction(actionId, isLive),
+    onSuccess: () => {
+      setFlowError(null);
+      setResult(null);
+    },
+    onError: (err) => {
+      setFlowError({
+        message: err instanceof Error ? err.message : "Rollback failed.",
+      });
     },
   });
 
@@ -366,7 +303,9 @@ export default function OptimizePage() {
                 rollbackPending={rollbackMutation.isPending}
                 rollbackAvailable={
                   result.comparison.action_id === "enable_power_saver" ||
-                  result.comparison.action_id === "reduce_brightness"
+                  result.comparison.action_id === "reduce_brightness" ||
+                  result.comparison.action_id === "cap_cpu_55" ||
+                  result.comparison.action_id === "eco_mode"
                 }
               />
             </motion.section>
@@ -423,6 +362,57 @@ export default function OptimizePage() {
             </p>
           </GlassPanel>
         ) : null}
+
+        {/* Eco Mode bundle — the stacked one-cycle path to 40%+ measured cut */}
+        <GlassPanel intensity="accent" className="p-6 flex flex-col md:flex-row md:items-center justify-between gap-5 border-emerald-500/30">
+          <span aria-hidden className="glass-sheen absolute inset-0" />
+          <div className="relative">
+            <div className="flex items-center gap-2">
+              <span className="px-2 py-0.5 rounded text-[10px] font-mono uppercase tracking-wider border border-emerald-500/40 text-emerald-300 bg-emerald-500/10">
+                Full Bundle
+              </span>
+              <span className="text-xs font-mono text-white/45">Verified server-side · fully reversible</span>
+            </div>
+            <h2 className="text-base font-semibold tracking-tight-2 text-white flex items-center gap-2 mt-2">
+              <Zap className="w-4 h-4 text-emerald-400" aria-hidden />
+              Eco Mode (Display 35% + Saver Plan + 55% CPU Cap)
+            </h2>
+            <p className="text-sm text-white/55 mt-1 max-w-xl">
+              Stacks every safe lever into one verified cycle: dims the display,
+              switches to the Power Saver plan, and caps sustained CPU frequency.
+              The measured drop is verified before any credits are awarded.
+            </p>
+          </div>
+          <div className="relative shrink-0">
+            <Button
+              onClick={() => {
+                const ecoOpp: OptimizationOpportunity = {
+                  id: "eco_mode",
+                  title: "Activate Eco Mode Bundle",
+                  category: "eco_bundle",
+                  priority: "high",
+                  estimated_power_reduction_pct: null,
+                  reversible: true,
+                  description: "Display to 35%, Power Saver plan, 55% sustained CPU cap — one verified cycle.",
+                  action_name: "Activate Eco Mode",
+                };
+                openModal(ecoOpp);
+              }}
+              disabled={!telemetry || !isLive}
+              loading={executeMutation.isPending}
+              title={
+                isLive
+                  ? "Run the full Eco Mode bundle"
+                  : telemetry
+                    ? "Live Windows telemetry is required for Eco Mode"
+                    : "Load a telemetry snapshot first"
+              }
+            >
+              <Zap className="w-4 h-4" aria-hidden />
+              Activate Eco Mode
+            </Button>
+          </div>
+        </GlassPanel>
 
         {/* Quick-Action Brightness Optimization Card */}
         <GlassPanel intensity="accent" className="p-6 flex flex-col md:flex-row md:items-center justify-between gap-5 border-cyan-500/30">
@@ -536,9 +526,11 @@ export default function OptimizePage() {
                           {rec.priority} impact
                         </span>
                         <span className="text-xs font-mono text-emerald-300">
-                          {rec.estimated_power_reduction_pct == null
-                            ? "Measured after execution"
-                            : `~${rec.estimated_power_reduction_pct}% drop`}
+                          {typeof rec.predicted_net_w === "number"
+                            ? `Predicted net ~${rec.predicted_net_w.toFixed(1)} W`
+                            : rec.estimated_power_reduction_pct == null
+                              ? "Measured after execution"
+                              : `~${rec.estimated_power_reduction_pct}% drop`}
                         </span>
                       </div>
                       <h3 className="text-base font-semibold tracking-tight-2 text-white mt-3">

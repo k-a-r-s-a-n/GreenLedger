@@ -184,6 +184,9 @@ def verify_on_chain_mint(tx_hash: str, token_id: int, user_wallet: str) -> bool:
     # Topics: [signature, operator, from, to]; data: [id (32B), value (32B)].
     contract_lower = contract_address.lower()
     wallet_topic = "0x" + ("0" * 24) + user_wallet[2:].lower()
+    # keccak256("TransferSingle(address,address,address,uint256,uint256)")
+    transfer_single_sig = "0xc3d58168c5ae7397731d063d5bbf3d657854427343f4c083240f7aacaa2d0f62"
+    zero_topic = "0x" + "0" * 64
 
     mint_log_found = False
     for log in receipt.get("logs", []):
@@ -196,7 +199,12 @@ def verify_on_chain_mint(tx_hash: str, token_id: int, user_wallet: str) -> bool:
         try:
             id_hex = data[2:66]
             value_hex = data[66:130]
-            if (topics[3] == wallet_topic
+            # Strict mint evidence: TransferSingle event, from == 0x0 (a mint, not
+            # a transfer), to == wallet, exact token id, value == 1. Without the
+            # signature + zero-from checks, a self-transfer could pose as a mint.
+            if (topics[0] == transfer_single_sig
+                    and topics[2] == zero_topic
+                    and topics[3] == wallet_topic
                     and int(id_hex, 16) == token_id
                     and int(value_hex, 16) == 1):
                 mint_log_found = True

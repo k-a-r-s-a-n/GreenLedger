@@ -1,0 +1,32 @@
+{
+  "protocol": "episode-level 70/15/15 split (seed 42); LSTM pinball loss on q10/q50/q90; XGB baselines on identical test episodes",
+  "model": {
+    "params": 205699,
+    "val_pinball": 0.3131,
+    "epochs_run": 167,
+    "train_episodes": 1050,
+    "artifact": "ml/models/temporal_lstm.pt"
+  },
+  "fast": false,
+  "evaluated_at": "2026-09-24T09:29:45Z",
+  "lstm_quantile": {
+    "mae_w": 0.9916,
+    "rmse_w": 1.2511,
+    "coverage_80": 0.7993,
+    "mean_width_80_w": 3.157,
+    "quantile_calibration": {
+      "q10": 0.096,
+      "q50": 0.501,
+      "q90": 0.895
+    },
+    "mae_w_last_tick": 0.9725
+  },
+  "xgb_current_tick": {
+    "mae_w": 1.3304,
+    "rmse_w": 2.2846
+  },
+  "xgb_window": {
+    "mae_w": 1.1342,
+    "rmse_w": 1.4405
+  }
+}

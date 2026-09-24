@@ -24,22 +24,34 @@ This directory contains the Solidity smart contracts powering the verifiable ach
 
 ---
 
+## Minting Model
+- **Self-claim (marketplace flow):** any wallet calls `mint(ownAddress, id, 1, "0x")` to claim its own unlocked badge — no deployer involvement needed.
+- **Owner relay:** the contract owner may also mint on behalf of any account.
+- One mint per (token ID, wallet) is enforced on-chain via `hasMintedBadge`.
+- Token metadata URIs are currently **placeholder IPFS CIDs** — publish real badge metadata to IPFS and call `setURI` before production use.
+
+---
+
 ## Compilation & Deployment
 
 ### Prerequisites
 - Node.js 18+
-- Hardhat
-- Sepolia RPC URL (e.g. Infura / Alchemy)
+- Sepolia RPC URL (e.g. Infura / Alchemy) in repo-root `.env` as `SEPOLIA_RPC_URL`
+- `DEPLOYER_PRIVATE_KEY` in repo-root `.env` (throwaway testnet wallet funded from a Sepolia faucet)
 - Sepolia Testnet ETH (from Sepolia Faucet)
 
-### Testing
+### Install, Compile & Test
 ```bash
+cd contracts
+npm install
+npx hardhat compile
 npx hardhat test
 ```
 
 ### Deployment to Sepolia
 ```bash
+cd contracts
 npx hardhat run scripts/deploy.js --network sepolia
 ```
 
-After deployment, update `NEXT_PUBLIC_CONTRACT_ADDRESS` in `.env`.
+After deployment, update `NEXT_PUBLIC_CONTRACT_ADDRESS` (frontend) and `CONTRACT_ADDRESS` (backend verifier) in `.env`. Marketplace self-claim requires this deployment — older owner-only deployments cannot serve user wallets.

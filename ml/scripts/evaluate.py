@@ -48,7 +48,10 @@ def run_inference_diagnostics():
                 "thread_count": 1800,
                 "context_switches": 4200,
                 "temperature": 41.5,
-                "uptime": 12.5
+                "uptime": 12.5,
+                "screen_brightness": 70.0,
+                "cpu_frequency": 1350.0,
+                "power_saver_active": 0
             }
         },
         {
@@ -62,7 +65,10 @@ def run_inference_diagnostics():
                 "thread_count": 3900,
                 "context_switches": 38000,
                 "temperature": 78.0,
-                "uptime": 2.5
+                "uptime": 2.5,
+                "screen_brightness": 100.0,
+                "cpu_frequency": 3300.0,
+                "power_saver_active": 0
             }
         }
     ]

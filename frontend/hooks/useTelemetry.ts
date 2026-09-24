@@ -19,6 +19,7 @@ import {
   fetchTelemetry,
   fetchDemoTelemetry,
   predictPower,
+  predictSequence,
   type DemoScenario,
 } from "../lib/api";
 import type { TelemetryData, PredictionResult } from "../types";
@@ -115,5 +116,27 @@ export function usePowerPrediction(telemetry: TelemetryData | null) {
     retry: 2,
     retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 4000),
     queryFn: () => predictPower(telemetry as TelemetryData),
+  });
+}
+
+/**
+ * Temporal LSTM intervals for a trailing telemetry window. Keyed by the
+ * last tick so each new tick produces exactly one sequence inference.
+ * Enabled from 3 ticks (short windows carry less context but still work).
+ * On 503 (torch/artifact missing) the query errors and callers degrade to
+ * the point estimate — intervals are a complement, never a dependency.
+ */
+export function usePowerInterval(tickWindow: TelemetryData[] | null) {
+  const lastTick =
+    tickWindow && tickWindow.length > 0
+      ? tickWindow[tickWindow.length - 1].timestamp
+      : null;
+  return useQuery({
+    queryKey: ["power-interval", lastTick],
+    enabled: !!tickWindow && tickWindow.length >= 3,
+    staleTime: 0,
+    retry: 1,
+    retryDelay: 2000,
+    queryFn: () => predictSequence(tickWindow as TelemetryData[]),
   });
 }

@@ -23,6 +23,13 @@ export interface TelemetryData {
   battery_percentage?: number | null;
   power_plugged?: boolean | null;
   power_meter_raw?: number | null;
+  battery_drain_pct_per_hr?: number | null;
+  battery_drain_w?: number | null;
+  foreground_process_name?: string | null;
+  input_idle_seconds?: number | null;
+  battery_capacity_wh?: number | null;
+  screen_brightness?: number | null;
+  power_saver_active?: number | null;
   top_cpu_processes?: {
     pid: number;
     name: string;
@@ -61,6 +68,8 @@ export interface OptimizationOpportunity {
   process_name?: string;
   cpu_percent?: number;
   memory_percent?: number;
+  predicted_net_w?: number | null;
+  prediction_basis?: string | null;
 }
 
 export interface BeforeAfterResult {
@@ -75,6 +84,18 @@ export interface BeforeAfterResult {
   streak_days: number;
   action_hash: string;
   unlocked_badge?: string | null;
+  before_power_interval_80?: [number, number] | null;
+  after_power_interval_80?: [number, number] | null;
+}
+
+export interface SequencePredictionResult {
+  q10_w: number;
+  median_w: number;
+  q90_w: number;
+  interval_80_w: [number, number];
+  window_ticks: number;
+  model_version: string;
+  warnings: string[];
 }
 
 export interface UserCreditState {

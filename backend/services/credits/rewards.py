@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 
 from schemas.models import GreenCreditState, Badge
+from services.carbon.calculator import DEFAULT_CARBON_INTENSITY
 
 INITIAL_BADGES = [
     Badge(
@@ -194,7 +195,9 @@ class GreenCreditService:
 
         u["credit_balance"] += total_reward
         u["lifetime_reduction_g_co2"] += co2_saved_g
-        u["lifetime_energy_saved_kwh"] += (co2_saved_g / 385.0)  # US grid factor
+        # Verified savings are computed with the default grid factor, so the
+        # inverse conversion uses the same named constant (g/kWh).
+        u["lifetime_energy_saved_kwh"] += co2_saved_g / (DEFAULT_CARBON_INTENSITY * 1000.0)
         u["total_optimizations"] += 1
 
         # Rank progression
@@ -219,16 +222,19 @@ class GreenCreditService:
         return total_reward
 
     def award_participation(self, user_id: str = "default_user") -> int:
-        """Awards nominal participation points for completing an action even with modest delta."""
+        """
+        Awards nominal participation points for completing an action even with modest delta.
+        Anti-farming: participation does NOT extend the streak or count as an
+        optimization — only verified (>=3%) reductions do. Otherwise sub-threshold
+        cycles could be spammed every cooldown window to farm streaks/badges.
+        """
         award = 5
         u = self._ensure_user(user_id)
-        self._update_streak(user_id)
 
         u["credit_balance"] += award
-        u["total_optimizations"] += 1
 
         u["transactions"].append({
-            "tx_id": f"tx_{int(time.time())}_{u['total_optimizations']}",
+            "tx_id": f"tx_p_{int(time.time() * 1000)}",
             "type": "participation",
             "credits": award,
             "description": "Optimization cycle completed (below verified reduction threshold)",

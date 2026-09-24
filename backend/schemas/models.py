@@ -33,8 +33,21 @@ class TelemetryInput(BaseModel):
     battery_percentage: Optional[float] = None
     power_plugged: Optional[bool] = None
     power_meter_raw: Optional[float] = None
+    # Phase 1 ground truth: battery drain-rate reference signal (agent-derived;
+    # None when plugged in, charging, or capacity unknown).
+    battery_drain_pct_per_hr: Optional[float] = None
+    battery_drain_w: Optional[float] = None
+    battery_capacity_wh: Optional[float] = None
+    # v1.1.0 model signals (display + DVFS awareness)
+    screen_brightness: Optional[float] = Field(None, ge=0.0, le=100.0)
+    cpu_frequency_mhz: Optional[float] = Field(None, ge=0.0)
+    power_saver_active: Optional[int] = Field(None, ge=0, le=1)
     top_cpu_processes: Optional[List[Dict[str, Any]]] = None
     top_memory_processes: Optional[List[Dict[str, Any]]] = None
+    # User-attention signals (agent-derived; None when unsupported): the zombie
+    # safety gate never recommends killing the foreground process.
+    foreground_process_name: Optional[str] = None
+    input_idle_seconds: Optional[float] = None
 
 
 class PredictionResponse(BaseModel):
@@ -76,6 +89,10 @@ class OptimizationRecommendation(BaseModel):
     process_name: Optional[str] = None
     cpu_percent: Optional[float] = None
     memory_percent: Optional[float] = None
+    # Predicted NET watts (gross minus transition cost) with its basis string;
+    # null when inputs are missing. Advisory only — verification mints credits.
+    predicted_net_w: Optional[float] = None
+    prediction_basis: Optional[str] = None
 
 
 class OptimizationExecuteRequest(BaseModel):
@@ -83,11 +100,36 @@ class OptimizationExecuteRequest(BaseModel):
     params: Optional[Dict[str, Any]] = None
 
 
+class SequencePredictRequest(BaseModel):
+    """A trailing telemetry window (oldest first, 1-120 ticks) for the
+    temporal LSTM. Intervals describe the LAST tick."""
+    telemetry_window: List[Dict[str, Any]] = Field(..., min_length=1, max_length=120)
+
+
+class SequencePredictResponse(BaseModel):
+    q10_w: float
+    median_w: float
+    q90_w: float
+    interval_80_w: List[float]
+    window_ticks: int
+    model_version: str
+    warnings: List[str] = []
+
+
 class DeltaEvaluationRequest(BaseModel):
     action_id: str
     before_telemetry: Dict[str, Any]
     after_telemetry: Dict[str, Any]
     user_id: str = "default_user"
+    # Optional raw sample windows behind each median snapshot; when supplied
+    # (and the temporal model is available) the response carries 80% power
+    # intervals for honest significance reading.
+    before_window: Optional[List[Dict[str, Any]]] = None
+    after_window: Optional[List[Dict[str, Any]]] = None
+    # Client-echoed prediction from the recommendation card (if shown), logged
+    # against the verified outcome for recommender calibration. Never affects
+    # verification or payouts.
+    predicted_net_w: Optional[float] = None
 
 
 class BeforeAfterComparison(BaseModel):
@@ -102,6 +144,10 @@ class BeforeAfterComparison(BaseModel):
     streak_days: int
     action_hash: str
     unlocked_badge: Optional[str] = None
+    # 80% power intervals [lo, hi] for each snapshot, when the caller supplied
+    # sample windows and the temporal model is available; else null.
+    before_power_interval_80: Optional[List[float]] = None
+    after_power_interval_80: Optional[List[float]] = None
 
 
 class GreenCreditState(BaseModel):

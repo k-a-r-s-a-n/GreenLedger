@@ -1,0 +1,568 @@
+{
+  "xgb_metrics": {
+    "r2": 0.9592,
+    "mae_watts": 0.9808,
+    "rmse_watts": 1.2218,
+    "mape_percent": 4.46,
+    "best_iteration": 249,
+    "train_samples": 8500,
+    "test_samples": 1500,
+    "hyperparameters": {
+      "max_depth": 4,
+      "learning_rate": 0.05,
+      "n_estimators": 250,
+      "subsample": 0.8,
+      "colsample_bytree": 0.8,
+      "reg_alpha": 0.1,
+      "reg_lambda": 1.0
+    },
+    "feature_importances": {
+      "freq_util_product": 0.7218999862670898,
+      "cpu_frequency": 0.11525999754667282,
+      "cpu_utilization": 0.07421000301837921,
+      "resource_pressure": 0.03654000163078308,
+      "screen_brightness": 0.024940000846982002,
+      "power_saver_active": 0.014820000156760216,
+      "memory_usage": 0.004619999788701534,
+      "cpu_memory_ratio": 0.0026000000070780516,
+      "uptime": 0.001069999998435378,
+      "thread_count": 0.0010499999625608325,
+      "process_thread_ratio": 0.0010100000072270632,
+      "process_count": 0.0010100000072270632,
+      "disk_io": 0.0009800000116229057
+    },
+    "dataset_metadata": {
+      "source": "ml/data/raw/sample_it_metrics.csv",
+      "is_synthetic": true,
+      "total_rows": 10000
+    },
+    "training_time_seconds": 1.04,
+    "evaluated_at": "2026-09-24T09:05:59Z"
+  },
+  "xgb_benchmark": {
+    "protocol": "70/15/15 split per seed; XGB early-stops on val; production hyperparameters (grid winner) for all XGB configs",
+    "seeds": [
+      42,
+      7,
+      11,
+      23,
+      99
+    ],
+    "fast": false,
+    "dataset": {
+      "rows": 10000,
+      "is_synthetic": true
+    },
+    "evaluated_at": "2026-09-24T09:13:27Z",
+    "summary": {
+      "xgb_full": {
+        "r2": {
+          "mean": 0.9606,
+          "sd": 0.0015,
+          "ci95_half": 0.0013
+        },
+        "mae_w": {
+          "mean": 0.9866,
+          "sd": 0.0127,
+          "ci95_half": 0.0111
+        },
+        "rmse_w": {
+          "mean": 1.2479,
+          "sd": 0.0219,
+          "ci95_half": 0.0192
+        },
+        "mape_pct": {
+          "mean": 4.4429,
+          "sd": 0.0473,
+          "ci95_half": 0.0415
+        }
+      },
+      "xgb_no_dvfs_term": {
+        "r2": {
+          "mean": 0.9601,
+          "sd": 0.0016,
+          "ci95_half": 0.0014
+        },
+        "mae_w": {
+          "mean": 0.9935,
+          "sd": 0.0117,
+          "ci95_half": 0.0103
+        },
+        "rmse_w": {
+          "mean": 1.2565,
+          "sd": 0.0154,
+          "ci95_half": 0.0135
+        },
+        "mape_pct": {
+          "mean": 4.4687,
+          "sd": 0.0615,
+          "ci95_half": 0.0539
+        }
+      },
+      "xgb_v10_features": {
+        "r2": {
+          "mean": 0.8048,
+          "sd": 0.0144,
+          "ci95_half": 0.0126
+        },
+        "mae_w": {
+          "mean": 2.0125,
+          "sd": 0.0103,
+          "ci95_half": 0.009
+        },
+        "rmse_w": {
+          "mean": 2.7773,
+          "sd": 0.043,
+          "ci95_half": 0.0377
+        },
+        "mape_pct": {
+          "mean": 8.5079,
+          "sd": 0.0616,
+          "ci95_half": 0.054
+        }
+      },
+      "xgb_top3_only": {
+        "r2": {
+          "mean": 0.9121,
+          "sd": 0.004,
+          "ci95_half": 0.0035
+        },
+        "mae_w": {
+          "mean": 1.4948,
+          "sd": 0.0123,
+          "ci95_half": 0.0108
+        },
+        "rmse_w": {
+          "mean": 1.8649,
+          "sd": 0.0177,
+          "ci95_half": 0.0155
+        },
+        "mape_pct": {
+          "mean": 6.7723,
+          "sd": 0.0484,
+          "ci95_half": 0.0425
+        }
+      },
+      "linear_full": {
+        "r2": {
+          "mean": 0.9592,
+          "sd": 0.0013,
+          "ci95_half": 0.0011
+        },
+        "mae_w": {
+          "mean": 1.0061,
+          "sd": 0.0103,
+          "ci95_half": 0.009
+        },
+        "rmse_w": {
+          "mean": 1.2706,
+          "sd": 0.0181,
+          "ci95_half": 0.0159
+        },
+        "mape_pct": {
+          "mean": 4.5233,
+          "sd": 0.0274,
+          "ci95_half": 0.024
+        }
+      },
+      "mean_baseline": {
+        "r2": {
+          "mean": -0.0006,
+          "sd": 0.0009,
+          "ci95_half": 0.0008
+        },
+        "mae_w": {
+          "mean": 4.5044,
+          "sd": 0.0572,
+          "ci95_half": 0.0501
+        },
+        "rmse_w": {
+          "mean": 6.2955,
+          "sd": 0.1628,
+          "ci95_half": 0.1427
+        },
+        "mape_pct": {
+          "mean": 18.7901,
+          "sd": 0.1546,
+          "ci95_half": 0.1355
+        }
+      }
+    },
+    "per_seed": {
+      "xgb_full": {
+        "42": {
+          "r2": 0.9584698579815696,
+          "mae_w": 0.9848357208251953,
+          "rmse_w": 1.2331229847942717,
+          "mape_pct": 4.482364245632885
+        },
+        "7": {
+          "r2": 0.9619830762334279,
+          "mae_w": 0.9972778629811605,
+          "rmse_w": 1.2665932513868872,
+          "mape_pct": 4.430559878301021
+        },
+        "11": {
+          "r2": 0.9616467105453266,
+          "mae_w": 0.9757878249104818,
+          "rmse_w": 1.2327859521761673,
+          "mape_pct": 4.426226171688228
+        },
+        "23": {
+          "r2": 0.9595861679623563,
+          "mae_w": 1.0018899332682294,
+          "rmse_w": 1.2765721368180776,
+          "mape_pct": 4.496428449574398
+        },
+        "99": {
+          "r2": 0.9615475518957757,
+          "mae_w": 0.9733850023142498,
+          "rmse_w": 1.2306316194782085,
+          "mape_pct": 4.378844291456868
+        }
+      },
+      "xgb_no_dvfs_term": {
+        "42": {
+          "r2": 0.957977382215903,
+          "mae_w": 0.9898639664713541,
+          "rmse_w": 1.2404127919097605,
+          "mape_pct": 4.495085986099916
+        },
+        "7": {
+          "r2": 0.9622574188799781,
+          "mae_w": 0.9868983745574951,
+          "rmse_w": 1.262014899617819,
+          "mape_pct": 4.409826056184561
+        },
+        "11": {
+          "r2": 0.9604025884228831,
+          "mae_w": 0.9930239011383056,
+          "rmse_w": 1.2526212259857394,
+          "mape_pct": 4.476892404134659
+        },
+        "23": {
+          "r2": 0.9593622111375606,
+          "mae_w": 1.0136144026184082,
+          "rmse_w": 1.280104368738749,
+          "mape_pct": 4.553653091807007
+        },
+        "99": {
+          "r2": 0.9604960849244594,
+          "mae_w": 0.9842227067820232,
+          "rmse_w": 1.2473437108375158,
+          "mape_pct": 4.407894611310216
+        }
+      },
+      "xgb_v10_features": {
+        "42": {
+          "r2": 0.786881573602643,
+          "mae_w": 2.0172230263264974,
+          "rmse_w": 2.7934132264137714,
+          "mape_pct": 8.590744424952222
+        },
+        "7": {
+          "r2": 0.8247778406436274,
+          "mae_w": 2.00756349899292,
+          "rmse_w": 2.719212811670623,
+          "mape_pct": 8.453941126147997
+        },
+        "11": {
+          "r2": 0.7976264856175083,
+          "mae_w": 2.0138327510070804,
+          "rmse_w": 2.8318040897228522,
+          "mape_pct": 8.506942259848064
+        },
+        "23": {
+          "r2": 0.8121936210492948,
+          "mae_w": 1.9982263632710777,
+          "rmse_w": 2.75191816261289,
+          "mape_pct": 8.443876299926908
+        },
+        "99": {
+          "r2": 0.8023533584048576,
+          "mae_w": 2.025488824920654,
+          "rmse_w": 2.7900423263314127,
+          "mape_pct": 8.544172250253276
+        }
+      },
+      "xgb_top3_only": {
+        "42": {
+          "r2": 0.9058682585106411,
+          "mae_w": 1.4933169085184732,
+          "rmse_w": 1.856490501104757,
+          "mape_pct": 6.815894471389666
+        },
+        "7": {
+          "r2": 0.9165197844276483,
+          "mae_w": 1.5004705704752601,
+          "rmse_w": 1.8768971060240434,
+          "mape_pct": 6.7820610945406505
+        },
+        "11": {
+          "r2": 0.9144796549271723,
+          "mae_w": 1.4815775871785481,
+          "rmse_w": 1.8408613947699393,
+          "mape_pct": 6.706459186181355
+        },
+        "23": {
+          "r2": 0.9117641733873257,
+          "mae_w": 1.5126779520670575,
+          "rmse_w": 1.8862655118776424,
+          "mape_pct": 6.817185807528162
+        },
+        "99": {
+          "r2": 0.911788121351777,
+          "mae_w": 1.4858446904500326,
+          "rmse_w": 1.8639300406766353,
+          "mape_pct": 6.740056782972539
+        }
+      },
+      "linear_full": {
+        "42": {
+          "r2": 0.957221727180794,
+          "mae_w": 0.9997205356099106,
+          "rmse_w": 1.251515716022777,
+          "mape_pct": 4.533812730085104
+        },
+        "7": {
+          "r2": 0.9605253964149831,
+          "mae_w": 1.0194043340506571,
+          "rmse_w": 1.2906472858173232,
+          "mape_pct": 4.544929346979721
+        },
+        "11": {
+          "r2": 0.9596052857275041,
+          "mae_w": 0.9984474953511202,
+          "rmse_w": 1.2651692799091752,
+          "mape_pct": 4.488230725193441
+        },
+        "23": {
+          "r2": 0.958800972296264,
+          "mae_w": 1.01488026411035,
+          "rmse_w": 1.2889136658199978,
+          "mape_pct": 4.5490374353192795
+        },
+        "99": {
+          "r2": 0.9598856428171398,
+          "mae_w": 0.9977982295276576,
+          "rmse_w": 1.2569441781669972,
+          "mape_pct": 4.500420715503608
+        }
+      },
+      "mean_baseline": {
+        "42": {
+          "r2": -9.11121627198419e-05,
+          "mae_w": 4.408809577142857,
+          "rmse_w": 6.051241262875005,
+          "mape_pct": 18.70260802916258
+        },
+        "7": {
+          "r2": -0.0020475413276879184,
+          "mae_w": 4.535218462857142,
+          "rmse_w": 6.502686953849982,
+          "mape_pct": 18.612602877317293
+        },
+        "11": {
+          "r2": -0.0009195795120022776,
+          "mae_w": 4.541026453333333,
+          "rmse_w": 6.297757883357361,
+          "mape_pct": 18.840053006837934
+        },
+        "23": {
+          "r2": -1.942016798262003e-05,
+          "mae_w": 4.543612457142858,
+          "rmse_w": 6.3501584492213805,
+          "mape_pct": 19.021782309411584
+        },
+        "99": {
+          "r2": -4.007598120714384e-05,
+          "mae_w": 4.493162767619048,
+          "rmse_w": 6.275882073152236,
+          "mape_pct": 18.773602303955577
+        }
+      }
+    }
+  },
+  "temporal_benchmark": {
+    "protocol": "episode-level 70/15/15 split (seed 42); LSTM pinball loss on q10/q50/q90; XGB baselines on identical test episodes",
+    "model": {
+      "params": 205699,
+      "val_pinball": 0.3131,
+      "epochs_run": 167,
+      "train_episodes": 1050,
+      "artifact": "ml/models/temporal_lstm.pt"
+    },
+    "fast": false,
+    "evaluated_at": "2026-09-24T09:29:45Z",
+    "lstm_quantile": {
+      "mae_w": 0.9916,
+      "rmse_w": 1.2511,
+      "coverage_80": 0.7993,
+      "mean_width_80_w": 3.157,
+      "quantile_calibration": {
+        "q10": 0.096,
+        "q50": 0.501,
+        "q90": 0.895
+      },
+      "mae_w_last_tick": 0.9725
+    },
+    "xgb_current_tick": {
+      "mae_w": 1.3304,
+      "rmse_w": 2.2846
+    },
+    "xgb_window": {
+      "mae_w": 1.1342,
+      "rmse_w": 1.4405
+    }
+  },
+  "eco_evaluation": {
+    "protocol": "frozen-baseline before/after trials, 95% CI (normal approx)",
+    "model_version": "1.1.0",
+    "trials_per_action": 20,
+    "seed": 7,
+    "note": "Model-estimated deltas (synthetic-trained v1.1.0 instrument). Carbon reduction % equals power reduction % (same grid factor).",
+    "personas": {
+      "student_typical": {
+        "baseline": {
+          "cpu_utilization": 45.0,
+          "memory_usage": 62.0,
+          "disk_io": 6.0,
+          "process_count": 175,
+          "thread_count": 2400,
+          "uptime": 10.0,
+          "screen_brightness": 100.0,
+          "cpu_frequency": 2350.0,
+          "power_saver_active": 0
+        },
+        "actions": {
+          "close_heavy_app": {
+            "mean_reduction_pct": 21.8,
+            "ci95_half_width": 2.1,
+            "min_pct": 10.0,
+            "max_pct": 28.7
+          },
+          "reduce_brightness_35": {
+            "mean_reduction_pct": 9.7,
+            "ci95_half_width": 0.2,
+            "min_pct": 8.8,
+            "max_pct": 10.9
+          },
+          "enable_power_saver": {
+            "mean_reduction_pct": 11.1,
+            "ci95_half_width": 0.8,
+            "min_pct": 8.2,
+            "max_pct": 14.1
+          },
+          "cap_cpu_55": {
+            "mean_reduction_pct": 24.5,
+            "ci95_half_width": 0.9,
+            "min_pct": 19.8,
+            "max_pct": 28.5
+          },
+          "eco_mode": {
+            "mean_reduction_pct": 43.2,
+            "ci95_half_width": 1.3,
+            "min_pct": 37.3,
+            "max_pct": 47.8
+          }
+        }
+      },
+      "heavy_multitasker": {
+        "baseline": {
+          "cpu_utilization": 70.0,
+          "memory_usage": 80.0,
+          "disk_io": 30.0,
+          "process_count": 230,
+          "thread_count": 3400,
+          "uptime": 5.0,
+          "screen_brightness": 100.0,
+          "cpu_frequency": 3000.0,
+          "power_saver_active": 0
+        },
+        "actions": {
+          "close_heavy_app": {
+            "mean_reduction_pct": 26.1,
+            "ci95_half_width": 2.5,
+            "min_pct": 13.2,
+            "max_pct": 35.4
+          },
+          "reduce_brightness_35": {
+            "mean_reduction_pct": 4.8,
+            "ci95_half_width": 0.2,
+            "min_pct": 4.2,
+            "max_pct": 5.4
+          },
+          "enable_power_saver": {
+            "mean_reduction_pct": 15.7,
+            "ci95_half_width": 1.3,
+            "min_pct": 12.1,
+            "max_pct": 22.8
+          },
+          "cap_cpu_55": {
+            "mean_reduction_pct": 43.9,
+            "ci95_half_width": 1.2,
+            "min_pct": 39.9,
+            "max_pct": 50.8
+          },
+          "eco_mode": {
+            "mean_reduction_pct": 63.0,
+            "ci95_half_width": 1.3,
+            "min_pct": 58.6,
+            "max_pct": 69.0
+          }
+        }
+      },
+      "clean_efficient": {
+        "baseline": {
+          "cpu_utilization": 20.0,
+          "memory_usage": 50.0,
+          "disk_io": 2.0,
+          "process_count": 130,
+          "thread_count": 1700,
+          "uptime": 40.0,
+          "screen_brightness": 60.0,
+          "cpu_frequency": 1700.0,
+          "power_saver_active": 0
+        },
+        "actions": {
+          "close_heavy_app": {
+            "mean_reduction_pct": 11.2,
+            "ci95_half_width": 0.9,
+            "min_pct": 5.4,
+            "max_pct": 14.4
+          },
+          "reduce_brightness_35": {
+            "mean_reduction_pct": 6.1,
+            "ci95_half_width": 0.3,
+            "min_pct": 4.8,
+            "max_pct": 7.7
+          },
+          "enable_power_saver": {
+            "mean_reduction_pct": 3.5,
+            "ci95_half_width": 0.5,
+            "min_pct": 1.5,
+            "max_pct": 7.6
+          },
+          "cap_cpu_55": {
+            "mean_reduction_pct": 5.2,
+            "ci95_half_width": 0.8,
+            "min_pct": 1.8,
+            "max_pct": 9.2
+          },
+          "eco_mode": {
+            "mean_reduction_pct": 12.2,
+            "ci95_half_width": 1.5,
+            "min_pct": 5.1,
+            "max_pct": 18.3
+          }
+        }
+      }
+    },
+    "evaluated_at": "2026-09-24T08:48:56Z"
+  },
+  "calibration": null,
+  "_meta": {
+    "generator": "ml/scripts/summarize_results.py",
+    "note": "Cited by docs/paper.md. Regenerate after any re-run of the evaluation scripts; never hand-edit numbers into the paper."
+  }
+}

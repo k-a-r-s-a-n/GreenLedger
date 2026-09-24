@@ -3,15 +3,20 @@
 ## Why Web3?
 Decentralization serves a targeted, principled function in GreenLedger:
 - **Off-Chain**: Heavy processing, sub-second telemetry, and XGBoost ML inference remain strictly off-chain to avoid exorbitant gas costs and latency.
-- **On-Chain**: Non-custodial ownership of achievement badges and sustainability credentials via OpenZeppelin ERC-1155 tokens on Ethereum Sepolia.
+- **On-Chain**: Non-custodial ownership of achievement badges and sustainability credentials via ERC-1155 tokens on Ethereum Sepolia.
 
 ---
 
 ## Smart Contract Specification (`GreenBadge.sol`)
-- **Standard**: ERC-1155 Multi-Token Standard
+- **Standard**: ERC-1155 Multi-Token Standard (ERC-165 `supportsInterface`, `balanceOfBatch`, operator approvals, single/batch safe transfers with receiver checks)
 - **Network**: Ethereum Sepolia (Chain ID: `11155111`)
 - **Target Contract**: `0x71C234Ea533F96507A5F44265E923C47131B64E6`
 - **Explorer**: [https://sepolia.etherscan.io](https://sepolia.etherscan.io)
+
+## Minting Model
+- **Self-claim**: any wallet calls `mint(ownAddress, id, 1, 0x)` to claim its own unlocked badge. One mint per (token ID, wallet) is enforced on-chain.
+- **Owner relay**: the contract owner may additionally mint on behalf of any account (e.g. future backend-relayed rewards).
+- Marketplace self-claim requires a deployment of the current contract source. The previously deployed owner-only contract cannot serve user wallets and must be redeployed; the frontend verifies the ERC-1155 interface before attempting a mint.
 
 ### Badge Token IDs
 1. `Token #1`: 🌱 First Optimization (Common)

@@ -112,3 +112,228 @@ Audit started: 2026-09-20
 3. **Medium — frontend/app/marketplace/page.tsx, badges pages, contracts/**: marketplace, badge, and token-ID compatibility was not changed or independently deployed; it requires a dedicated protected Web3 audit.
 4. **Medium — start-dev.ps1 and frontend package scripts**: documented/printed port behavior differs (`3000` vs dev `3001`); not changed because it is outside the optimization subsystem.
 5. **Low — backend test warnings**: installed Starlette/httpx versions emit deprecation warnings; no behavior failure was observed.
+
+---
+
+## Fix pass 2026-09-24 (full-repo review remediation)
+
+### Fixed
+- **Critical, frontend/app/optimize/page.tsx**: `rollbackMutation` was created inside the 429 `onError` callback (Rules-of-Hooks violation) yet referenced in render scope — crashing the verified-result panel after every successful optimization. Hoisted to component top level; removed dead `buildLocalRecommendations` duplicate and unused icon imports.
+- **Build safety, frontend/next.config.js**: re-enabled `typescript.ignoreBuildErrors: false` (and documented the ESLint flag) so type errors fail the build instead of shipping as runtime crashes. Fixed the two `slideVariants` framer-motion `Variants` type errors this surfaced.
+- **Contract, contracts/contracts/GreenBadge.sol**: `mint` was `onlyOwner`, so no user wallet could ever mint from the marketplace. Now supports self-claim (`msg.sender == account`) plus owner relay, with one-mint-per-wallet still enforced. Completed ERC-1155 surface: ERC-165 `supportsInterface`, `balanceOfBatch`, approvals, single/batch safe transfers with receiver checks, `TransferBatch`/`ApprovalForAll` events. `frontend/lib/web3.ts` owner-gate replaced with an ERC-1155 interface check plus an already-minted pre-check. Contract tests rewritten/extended; added missing `contracts/package.json` + `hardhat.config.js` (plus standard `contracts/` sources layout) so `npx hardhat test` and the Sepolia deploy script run.
+- **ML integrity, ml/scripts/train.py**: final fit early-stopped on the TEST split (test-set leakage). Now early-stops on validation; test split is touched once for reporting. Model retrained: R² 0.9753, MAPE 4.17% (n=1500) — confirming the metrics were not an artifact of the leak.
+- **Agent safety, agent/optimizer.py**: `close_process_<pid>` execution now enforces the optimizable-application allowlist (previously only the denylist), closing the crafted-action-ID hole. `frontend/lib/api.ts` local recommendation mirror is allowlist-based to match.
+- **Backend whitelist**: removed dead `trim_working_sets` entry (no implementation anywhere). `docs/api-contract.md` + `docs/optimization.md` updated (brightness action documented in its place).
+- **Agent telemetry, agent/windows_metrics.py**: `disk_read_mbs`/`disk_write_mbs` divided cumulative-since-boot counters by the poll interval (ever-growing fiction). Now computed from per-sample deltas like `disk_io`.
+- **Agent CORS, agent/api.py**: replaced `allow_origins=["*"]` + credentials (rejected by browsers) with explicit loopback origins.
+- **Honesty/copy**: landing + deck + step copy now cite measured `metrics.json` values (R² 0.975, MAPE 4.2%) instead of "99.1% R² / sub-2ms"; `metrics.json` + `dataset_loader.py` no longer record absolute local paths; `.env.example` inner-quote footgun removed; `deployment.md` now states the Vercel build is frontend-only and documents the hosted-backend requirement for remote Demo Mode.
+- **Minor**: `rewards.py` lifetime-kWh conversion uses the named `DEFAULT_CARBON_INTENSITY` constant instead of a magic `385.0`.
+
+### Verification (this environment, Linux sandbox)
+- Backend suite: `python -m pytest backend/tests/` — all pass (see run output).
+- Contract compile: `solcjs` (solc 0.8.20 via npm) compiles `contracts/contracts/GreenBadge.sol` with no errors. `npx hardhat test` could NOT run in this sandbox (binaries.soliditylang.org is unreachable here, so Hardhat cannot download its compiler) — run `cd contracts && npm install && npx hardhat test` on a networked machine; the suite covers self-claim, owner relay, duplicates, ERC-165, batch balances, and approval-gated transfers.
+- **Build/runtime crash, frontend/app/api/start-services/route.ts**: the GET handler executed during `next build` static route evaluation and called `spawn("cmd.exe", …)` with no `'error'` listener — an unhandled error event that crashes the Node worker on any non-Windows machine (Linux dev, Vercel build/runtime). Now `force-dynamic`, returns 501 on non-Windows instead of spawning, and attaches error handlers that reset the started flags. `frontend/app/api/brightness/route.ts` also marked `force-dynamic` (hardware probing must not run at build).
+- Frontend: `npx tsc --noEmit` clean and full `npm run build` succeeds (18/18 static pages, type checks enforced). In this sandbox Google Fonts is unreachable, so the build was verified with the `next/font` import temporarily stubbed and `app/layout.tsx` then restored byte-identical (no diff).
+- Retrain: `python ml/scripts/train.py` regenerates model + schema + honest metrics.
+- Not verifiable here: Windows-only paths (`powercfg`, WMI brightness, agent subprocess probes), live Sepolia deployment, and MetaMask self-claim UX — all require Windows hardware + testnet wallet.
+
+---
+
+## Fix pass 2026-09-24 (v1.1.0: beating the 40% project, honestly)
+
+### Double-check findings (prompted by external skepticism — largely valid)
+- v1.0 model saw utilization % only: brightness cuts, power-plan switches, and
+  frequency caps change watts through backlight/clocks the model never
+  received, so they verified at ~0% even when real watts dropped.
+- Literature: laptop backlight ~26-29% of system power; idle dimming cut total
+  system 13.1W -> 8.2W (-37%, Mahesri & Vardhan); LCD max-min delta ~6W
+  (NotebookCheck); Power Saver vs High Performance ~18% at full load but ~0%
+  at idle (wall measurements); DVFS P = C*V^2*f with workload-dependent,
+  diminishing returns on modern silicon (Weissel & Bellosa).
+- Conclusion: 40%+ is real but ONLY via stacked levers + an instrument that
+  sees them. Single "simple optimizations" verify at ~10-25% each.
+
+### Built
+- **Model v1.1.0**: +`screen_brightness`, +`cpu_frequency`, +`power_saver_active`,
+  +`freq_util_product` (DVFS interaction, now top importance at 0.72).
+  Synthetic physics extended (display + DVFS terms); retrained honestly
+  (test untouched): R² 0.9592, MAE 0.98W, MAPE 4.46%.
+- **Agent**: `cap_cpu_55` (powercfg PROCTHROTTLEMAX AC+DC, verified + reversible)
+  and `eco_core` bundle (saver plan + cap, all-or-nothing, single undo);
+  collector adds cached (30s TTL) brightness + saver-state probes.
+- **Backend**: whitelist += `cap_cpu_55`, `eco_mode`; recommendations offer the
+  Eco bundle; schemas accept the v1.1 signals; demo scenarios carry them.
+- **Frontend**: Eco Mode hero card (brightness 35 + eco_core, one verified
+  cycle, full rollback); telemetry types extended.
+- **Proof**: `ml/scripts/evaluate_actions.py` — frozen personas, N trials,
+  mean ± 95% CI, JSON trial log. Headline: Eco Mode **43.2% ± 1.3%** on
+  `student_typical` (n=20); 63% heavy baseline, 12% clean baseline.
+
+### Verification (Linux sandbox)
+- Backend suite 51/51; `tsc --noEmit` clean; eval protocol + retrain run green.
+- Not verifiable here: Windows-only execution (powercfg/WMI), live trial
+  confirmation on hardware, Sepolia redeploy.
+
+## Phase 0 — Integrity fixes (2026-09-24)
+Full-repo line-by-line re-read; all findings fixed before any new work.
+
+### Bugs fixed
+- **Live `disk_io` permanently 0.0** (`agent/windows_metrics.py`): header declared
+  `_last_disk_bytes`, reader used `_last_disk_read/write_bytes` → NameError every
+  poll, swallowed by `except`. Header corrected; verified at both sites.
+- **Stale explanation panel** (`inference.py`): contributions hardcoded v1.0
+  features, hiding `freq_util_product` (importance 0.72). Now v1.1 set.
+- **Participation farming** (`rewards.py`): sub-threshold cycles extended streaks
+  and optimization counts (~900 farmable credits/hr). Participation now awards
+  5 credits only; docs + contract updated.
+- **Mint-evidence gap** (`verifier.py`): TransferSingle check ignored event
+  signature and `from == 0x0`, so a self-transfer could pose as a mint. Strict
+  now, with regression tests.
+- **Fabricated latency** (`ScrollDashboardDeck.tsx`): `"1.4 ms"` placeholder while
+  loading → `"—"`; stale `v1.0.0` fallback → live version from payload.
+- **OOD false-positives** (`train.py` + `inference.py`): raw min/max bounds flagged
+  real machines (boost clocks, long uptimes). Schema now stores explicit
+  `ood_min/ood_max` (observed extremes ± 3σ margin, physical limits); retrained,
+  metrics unchanged (R² 0.9592, MAPE 4.46%).
+- **Dropped `Retry-After`** (evaluate-delta proxy): forwarded, so the 429
+  countdown uses the server value.
+- **CPU-cap rollback 422** (`api.ts` + optimize page): `cap_cpu_55` rollback
+  branch added; Rollback button gated consistently.
+
+### Honesty/copy corrections
+- Diagnostics: model version from payload (was hardcoded v1.0.0); loss-function
+  copy corrected (squared error, not "multi-objective").
+- Landing: "6 Primary Features" → 13; "0 Risk" → "Reversible · Guarded";
+  "Autonomous Optimization" → "Human-Approved"; spoofing-prevention overclaim
+  removed.
+- README: "hyperparameter cross-validation, 70/15/15" → fixed params, single
+  85/15 split (seed 42). Hackathon script + API contract numbers refreshed.
+- `.env.example`: removed never-read vars (`PORT/HOST/DEBUG`, `MODEL_PATH*`,
+  `API_RATE_LIMIT`, `NEXT_PUBLIC_DEFAULT_CARBON_INTENSITY`);
+  `CARBON_INTENSITY_KG_PER_KWH` is now actually read by the calculator.
+
+### Hygiene
+- Deleted ~1,100 lines of dead components (`PowerGauge`, `SlidingDashboardDeck`,
+  `SlidingCardCarousel`, `PresentationMode`, `BlurText` — imported nowhere).
+- `EnergyCore3D`: scene builds once, telemetry ticks via refs (was full
+  rebuild + flicker every 2.5s). `Providers`: start-services fetch moved from
+  state initializer to `useEffect`. Before/after window now medians v1.1
+  signals (brightness/frequency/saver), not just cpu/mem/disk.
+
+### Verification (Linux sandbox)
+- Backend suite **56/56** (5 new: OOD flag ×2, mint-evidence ×2,
+  participation anti-farming ×1); `tsc --noEmit` clean; retrain reproduces
+  metrics exactly. `next build` fails only on Google Fonts fetch (sandbox has
+  no external web access) — no code errors.
+
+## Phase 1 — Ground truth + rigor harness (2026-09-24)
+
+### Built
+- **Battery drain-rate collector** (`agent/windows_metrics.py`): % deltas over
+  a 10-minute rolling window × CIM full-charge capacity → `battery_drain_w`
+  (and `%`/h). Null when plugged/charging/unknown. The real-hardware
+  reference signal for validating ML estimates. Backend schema + frontend
+  types carry the new fields.
+- **Transition log** (`engine.py`): every accepted cycle appends
+  (state, action, outcome) JSONL to `ml/data/transitions/` — the offline
+  dataset Phase 3 learns from. Participation cycles logged as verified
+  non-effects. Best-effort; overridable path for tests.
+- **Benchmark harness** (`ml/scripts/benchmark.py`): 5-seed evaluation,
+  baselines (linear, mean), ablations (no-DVFS-term, v1.0-feats, top-3).
+  Report: `ml/reports/model_benchmark.json`.
+- **Corrections**: train.py DOES run a 4-candidate grid on a 70/15/15 split —
+  the Phase 0 "fixed params, 85/15" copy was wrong; README + docstring fixed
+  to "small grid, 70/15/15, no CV".
+
+### Findings (reported, not buried)
+- Metrics seed-stable: R² 0.9606 ± 0.0013. Headline is not a lucky split.
+- v1.1 signals load-bearing (−0.16 R² without them). Top-3-only reaches 0.91.
+- `freq_util_product` adds ~0 accuracy over the raw pair (kept for
+  interpretability). **Linear regression ties XGBoost (0.9592)** on smooth
+  synthetic data — model-class comparisons must wait for real noisy data
+  (Phase 2), which is exactly why the drain-rate ground truth exists.
+
+### Verification (Linux sandbox)
+- Backend suite **58/58** (transition-log + fast-benchmark tests); drain-rate
+  math unit-verified with simulated samples; `tsc` clean.
+- Not verifiable here: CIM capacity probe + drain collector on real Windows
+  hardware (needs the live agent on battery power).
+
+---
+
+## Phase 2 — Temporal Uncertainty (2026-09-24)
+
+Rival-beating check: a per-tick point estimate cannot say "I don't know".
+Phase 2 adds a quantile LSTM over trailing telemetry with calibrated 80%
+prediction intervals, served as an optional complement to XGBoost.
+
+- **Episodes** (`ml/scripts/temporal_dataset.py`): 1,500 × 30 ticks, AR(1)
+  regimes + cap/brightness/app-close events, v1.1 physics.
+- **Model** (`ml/scripts/train_temporal.py`): 2-layer LSTM-128, q10/q50/q90
+  pinball heads, episode-level 70/15/15. Artifact `temporal_lstm.pt` v2.0.0.
+- **Results** (`ml/reports/temporal_benchmark.json`): LSTM median MAE **0.99W**
+  vs XGB-tick 1.33W vs XGB-window 1.13W; coverage 0.799 (target 0.80);
+  calibration 0.096/0.501/0.895. Deterministic retrain verified.
+- **Serving**: `POST /api/ml/predict-sequence` (503 without torch/artifact);
+  delta eval accepts `before_window`/`after_window`, returns interval fields
+  + `reduction_significant` in the transition log. Dashboard + verify card
+  show intervals; payouts unchanged (point rule).
+- **Caveat (reported, not buried)**: the LSTM-vs-XGB gap is on synthetic
+  episodes whose smooth noise favors recurrence; real-hardware validation
+  against drain-rate ground truth is the next bar.
+
+### Verification (Linux sandbox)
+- Backend suite **61/61** (sequence-contract + windowed-delta tests);
+  `tsc` clean; end-to-end smoke (5-tick window → intervals; delta with
+  windows → non-overlapping intervals on a 33% reduction).
+- Not verifiable here: interval calibration on live Windows telemetry.
+
+---
+
+## Patent-gap build — Self-Calibrating Verified Savings (2026-09-24)
+
+The patent survey (`docs/patent-landscape.md`) showed every rival either
+predicts without verifying (Microsoft '939, Vigyanlabs '584) or verifies
+without learning (all of them). This build closes the loop:
+- **Cost models** (`cost_models.py`): every card carries predicted net watts
+  (gross − transition cost) + basis; breakeven gate (≤ 0.25 W stays silent);
+  attention-weighted zombie score with a safety gate (foreground app never a
+  kill candidate; unknown attention = no boost).
+- **Agent**: `foreground_process_name` + `input_idle_seconds` (Windows
+  GetForegroundWindow/GetLastInputInfo; None elsewhere).
+- **Calibration**: delta eval echoes `predicted_net_w`; transition log gains
+  `prediction_error_w`; `ml/scripts/calibration.py` reports per-action
+  bias/MAE/RMSE over verified cycles.
+- **Root fix found en route**: `feature_mapper` used
+  `telemetry.get("cpu_frequency_mhz", telemetry.get("cpu_frequency"))`, which
+  does NOT fall back when the key exists as None — every TelemetryInput-validated
+  payload (i.e. all of `/predict` over HTTP) 422'd. Explicit None check now;
+  regression test added. This was a live production bug, not a corner case.
+
+### Verification (Linux sandbox)
+- Backend suite **69/69** (cost-model/gate/zombie/mapper/calibration-log
+  tests); `tsc` clean; smoke: eco 9.31 W / saver 2.48 W predicted, kill
+  suppressed on foreground match, unattended boost 35.7 → 46.4.
+- Not verifiable here: attention signals on real Windows (ctypes path).
+
+---
+
+## Phase 4 — Publishable/Patentable Package (2026-09-24)
+
+- **Paper draft** (`docs/paper.md`): abstract → methods → evaluation →
+  limitations, all numbers cited from `results_summary.json` (XGB MAE
+  0.98 W / R² 0.9606±0.0013; LSTM MAE 0.99 W, coverage 0.799; eco bundle
+  43.2% ± 1.3%). Limitations section states all five validity threats.
+- **Invention disclosure** (`docs/invention-disclosure.md`): 5 concepts
+  (drain-calibrated meter, interval-verified actions, self-calibrating
+  recommender, verified-outcome payouts, transition-log dataset) with
+  claim sketches, prior-art distinctions, and fallback positions.
+- **Field protocol** (`docs/field-protocol.md`): 7 jobs from bench setup
+  to offline policy, each with procedure, publication bar, and artifact;
+  policy work explicitly gated on metered reward data.
+- **Reproducibility**: `summarize_results.py` + pinned test (paper can
+  never drift from reports); full pipeline documented in the draft.
+
+### Verification (Linux sandbox)
+- Backend suite **71/71** (summary aggregator tests); `tsc` clean.
+- Nothing in this phase requires hardware: it is evidence packaging.

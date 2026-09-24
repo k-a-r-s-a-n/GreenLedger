@@ -9,3 +9,9 @@ pytest>=8.0.0
 httpx>=0.27.0
 websockets>=12.0
 python-multipart>=0.0.9
+# Agent collector contract is covered by the backend suite (attention signals).
+psutil>=5.9.0
+# Temporal LSTM intervals (Phase 2, optional): install the CPU wheel to avoid
+# the multi-GB CUDA bundle — pip install torch --index-url
+# https://download.pytorch.org/whl/cpu — then: pip install -r requirements.txt
+torch>=2.0.0

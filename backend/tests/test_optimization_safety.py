@@ -42,9 +42,10 @@ def test_recommendations_endpoint_accepts_telemetry():
     assert isinstance(data, list)
     ids = [rec["id"] for rec in data]
     assert "enable_power_saver" in ids
+    assert "eco_mode" in ids
     # Only safe action id shapes may ever be recommended
     for rec in data:
-        assert rec["id"] == "enable_power_saver" or rec["id"].startswith("close_process_")
+        assert rec["id"] in ("enable_power_saver", "eco_mode") or rec["id"].startswith("close_process_")
 
 
 def test_evaluate_delta_rejects_unknown_action():
@@ -59,6 +60,14 @@ def test_evaluate_delta_rejects_unknown_action():
 def test_evaluate_delta_rejects_non_digit_process_action():
     response = _evaluate("whitelist_user_2", _live_telemetry("normal"), _live_telemetry("optimized"),
                          action_id="close_process_not_a_pid")
+    assert response.status_code == 422
+    assert "whitelist" in response.json()["detail"]
+
+
+def test_evaluate_delta_rejects_unimplemented_action():
+    """Dead action ids with no implementation must not earn credits."""
+    response = _evaluate("dead_action_user", _live_telemetry("normal"), _live_telemetry("optimized"),
+                         action_id="trim_working_sets")
     assert response.status_code == 422
     assert "whitelist" in response.json()["detail"]
 
@@ -81,6 +90,15 @@ def test_evaluate_delta_happy_path_awards_credits():
     assert data["action_hash"]
     state = client.get(f"/api/credits/state?user_id={user_id}").json()
     assert state["total_optimizations"] >= 1
+
+
+def test_evaluate_delta_accepts_eco_and_cap_actions():
+    """Whitelisted v1.1 actions (eco bundle, CPU cap) evaluate like any other."""
+    for user_id, action_id in (("eco_user", "eco_mode"), ("cap_user", "cap_cpu_55")):
+        response = _evaluate(user_id, _live_telemetry("normal"), _live_telemetry("optimized"),
+                             action_id=action_id)
+        assert response.status_code == 200
+        assert response.json()["credits_awarded"] > 0
 
 
 def test_evaluate_delta_cooldown_returns_429():
@@ -158,3 +176,21 @@ def test_meter_contradiction_cannot_claim_model_savings():
     assert data["reduction_watts"] == 0.0
     assert data["hourly_co2_saved_g"] == 0.0
     assert data["credits_awarded"] == 5
+
+
+def test_accepted_cycle_appends_transition_log(tmp_path, monkeypatch):
+    """Every accepted cycle (verified or participation) logs (state, action, outcome)."""
+    import json
+    log_file = tmp_path / "transitions.jsonl"
+    monkeypatch.setenv("GREENLEDGER_TRANSITION_LOG", str(log_file))
+    response = _evaluate("transition_user", _live_telemetry("normal"), _live_telemetry("optimized"))
+    assert response.status_code == 200
+    lines = log_file.read_text(encoding="utf-8").strip().split("\n")
+    assert len(lines) == 1
+    record = json.loads(lines[0])
+    assert record["action_id"] == "enable_power_saver"
+    assert record["verified"] is True
+    assert record["before"]["cpu_utilization"] > 0
+    assert record["after"]["cpu_utilization"] > 0
+    assert record["reduction_pct"] > 0
+    assert record["action_hash"] == response.json()["action_hash"]

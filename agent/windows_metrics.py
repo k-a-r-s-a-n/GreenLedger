@@ -7,6 +7,7 @@ Explicitly handles unavailable sensors with null rather than fabricating values.
 import time
 import subprocess
 import logging
+from collections import deque
 from typing import Dict, Any, List, Optional
 import psutil
 
@@ -16,7 +17,8 @@ logger = logging.getLogger("GreenLedger.WindowsMetrics")
 
 # Track previous disk/net stats for rate calculation
 _last_disk_time = None
-_last_disk_bytes = None
+_last_disk_read_bytes = None
+_last_disk_write_bytes = None
 _last_net_time = None
 _last_net_bytes = None
 
@@ -66,30 +68,39 @@ def get_memory_metrics() -> Dict[str, Any]:
 
 
 def get_disk_metrics() -> Dict[str, Any]:
-    """Calculates disk read/write throughput rates in MB/s."""
-    global _last_disk_time, _last_disk_bytes
+    """Calculates disk read/write throughput rates in MB/s from sample deltas."""
+    global _last_disk_time, _last_disk_read_bytes, _last_disk_write_bytes
     try:
         now = time.time()
         io = psutil.disk_io_counters()
         if io is None:
             return {"disk_io": None, "disk_read_mbs": None, "disk_write_mbs": None}
 
-        total_bytes = io.read_bytes + io.write_bytes
-        if _last_disk_time is None or _last_disk_bytes is None:
+        if _last_disk_time is None or _last_disk_read_bytes is None or _last_disk_write_bytes is None:
             _last_disk_time = now
-            _last_disk_bytes = total_bytes
+            _last_disk_read_bytes = io.read_bytes
+            _last_disk_write_bytes = io.write_bytes
             return {"disk_io": None, "disk_read_mbs": None, "disk_write_mbs": None}
 
         elapsed = max(0.001, now - _last_disk_time)
-        rate_mbs = max(0.0, (total_bytes - _last_disk_bytes) / (1024 * 1024 * elapsed))
-        
+        # Delta of cumulative counters over the elapsed window (clamped at 0 in
+        # case a counter resets between samples).
+        read_delta = max(0, io.read_bytes - _last_disk_read_bytes)
+        write_delta = max(0, io.write_bytes - _last_disk_write_bytes)
+        total_delta = read_delta + write_delta
+
+        rate_mbs = total_delta / (1024 * 1024 * elapsed)
+        read_mbs = read_delta / (1024 * 1024 * elapsed)
+        write_mbs = write_delta / (1024 * 1024 * elapsed)
+
         _last_disk_time = now
-        _last_disk_bytes = total_bytes
-        
+        _last_disk_read_bytes = io.read_bytes
+        _last_disk_write_bytes = io.write_bytes
+
         return {
             "disk_io": round(float(rate_mbs), 2),
-            "disk_read_mbs": round(float((io.read_bytes) / (1024 * 1024 * elapsed)), 2) if elapsed > 0 else 0.0,
-            "disk_write_mbs": round(float((io.write_bytes) / (1024 * 1024 * elapsed)), 2) if elapsed > 0 else 0.0,
+            "disk_read_mbs": round(float(read_mbs), 2),
+            "disk_write_mbs": round(float(write_mbs), 2),
         }
     except Exception as e:
         logger.warning(f"Failed to read Disk metrics: {e}")
@@ -245,6 +256,65 @@ def get_process_metrics() -> Dict[str, Any]:
         }
 
 
+# Battery drain-rate ground truth: % deltas over a rolling window × full-charge
+# capacity → watts. Windows reports battery % in coarse 1% steps, so a single
+# 2s poll delta is mostly noise — the rate is computed over up to 10 minutes
+# of history (300 polls). Positive = discharging; None when plugged in,
+# charging, or unknown. This is the real-hardware reference signal for
+# validating the ML estimates (Phase 1 ground truth).
+_battery_history: deque = deque(maxlen=300)  # (timestamp, percent, plugged)
+_battery_capacity_wh: Optional[float] = None
+_battery_capacity_probed = False
+
+
+def _get_battery_capacity_wh() -> Optional[float]:
+    """Full-charge capacity in Wh via CIM (queried once, cached forever)."""
+    global _battery_capacity_wh, _battery_capacity_probed
+    if _battery_capacity_probed:
+        return _battery_capacity_wh
+    _battery_capacity_probed = True
+    try:
+        res = subprocess.run(
+            ["powershell", "-NoProfile", "-Command",
+             "(Get-CimInstance -ClassName Win32_Battery).FullChargeCapacity"],
+            capture_output=True, text=True, timeout=4.0,
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            # FullChargeCapacity is reported in milliwatt-hours.
+            mwh = int(res.stdout.strip().split()[0])
+            if mwh > 0:
+                _battery_capacity_wh = round(mwh / 1000.0, 2)
+    except Exception:
+        _battery_capacity_wh = None
+    return _battery_capacity_wh
+
+
+def _battery_drain_rate(battery_pct: Optional[float], plugged: Optional[bool]) -> Dict[str, Optional[float]]:
+    """Rolling-window discharge rate from battery % history."""
+    now = time.time()
+    if battery_pct is not None and plugged is not None:
+        _battery_history.append((now, battery_pct, plugged))
+    drain_pct_per_hr: Optional[float] = None
+    drain_w: Optional[float] = None
+    capacity_wh = _get_battery_capacity_wh()
+    if len(_battery_history) >= 2:
+        oldest = _battery_history[0]
+        newest = _battery_history[-1]
+        span_hours = (newest[0] - oldest[0]) / 3600.0
+        # Valid only while discharging on battery across the whole window.
+        if span_hours > 0 and not oldest[2] and not newest[2]:
+            drop = oldest[1] - newest[1]
+            if drop > 0:
+                drain_pct_per_hr = round(drop / span_hours, 2)
+                if capacity_wh:
+                    drain_w = round(drain_pct_per_hr / 100.0 * capacity_wh, 2)
+    return {
+        "battery_drain_pct_per_hr": drain_pct_per_hr,
+        "battery_drain_w": drain_w,
+        "battery_capacity_wh": capacity_wh,
+    }
+
+
 def get_system_power_metrics() -> Dict[str, Any]:
     """
     Gathers system uptime, battery status, and probes Windows Power Meter counters.
@@ -291,13 +361,106 @@ def get_system_power_metrics() -> Dict[str, Any]:
     except Exception:
         power_meter_raw = None
 
+    # 5. Battery drain-rate ground truth (rolling window; None when plugged).
+    drain = _battery_drain_rate(battery_pct, power_plugged)
+
     return {
         "uptime": uptime_hours,
         "battery_percentage": battery_pct,
         "power_plugged": power_plugged,
         "temperature": temperature,
-        "power_meter_raw": power_meter_raw
+        "power_meter_raw": power_meter_raw,
+        "battery_drain_pct_per_hr": drain["battery_drain_pct_per_hr"],
+        "battery_drain_w": drain["battery_drain_w"],
+        "battery_capacity_wh": drain["battery_capacity_wh"],
     }
+
+
+# TTL cache for slow powercfg/WMI probes (plan and brightness change rarely;
+# re-querying every 2s poll would just burn the watts we're trying to save).
+_slow_probe_cache: Dict[str, Any] = {"at": 0.0, "power_saver_active": None, "screen_brightness": None}
+_SLOW_PROBE_TTL = 30.0
+
+
+def get_display_power_state() -> Dict[str, Any]:
+    """
+    Reads screen brightness (WMI, 0-100) and whether the Power Saver scheme is
+    active (powercfg). Results are cached for 30s. Returns None per-field when
+    the sensor is not exposed (external monitors, query failure).
+    """
+    global _slow_probe_cache
+    now = time.time()
+    if now - _slow_probe_cache["at"] < _SLOW_PROBE_TTL:
+        return {
+            "screen_brightness": _slow_probe_cache["screen_brightness"],
+            "power_saver_active": _slow_probe_cache["power_saver_active"],
+        }
+
+    brightness = None
+    saver = None
+    try:
+        res = subprocess.run(
+            ["powershell", "-NoProfile", "-Command",
+             "(Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightness).CurrentBrightness"],
+            capture_output=True, text=True, timeout=3.0,
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            val = int(res.stdout.strip().split()[0])
+            brightness = float(max(0, min(100, val)))
+    except Exception:
+        brightness = None
+
+    try:
+        from config import POWER_SCHEMES
+        res = subprocess.run(["powercfg", "/getactivescheme"], capture_output=True, text=True, timeout=3.0)
+        if res.returncode == 0:
+            saver = 1 if POWER_SCHEMES["power_saver"].lower() in res.stdout.lower() else 0
+    except Exception:
+        saver = None
+
+    _slow_probe_cache = {"at": now, "power_saver_active": saver, "screen_brightness": brightness}
+    return {"screen_brightness": brightness, "power_saver_active": saver}
+
+
+def get_user_attention() -> Dict[str, Any]:
+    """
+    Foreground process name + seconds since last input (Windows only, via
+    GetForegroundWindow / GetLastInputInfo). Feeds the zombie-score safety
+    gate: the active app is never a kill candidate. Returns None per-field on
+    non-Windows platforms or any failure — unknown attention means "no boost",
+    never assumed unattended.
+    """
+    result: Dict[str, Any] = {"foreground_process_name": None, "input_idle_seconds": None}
+    try:
+        import platform
+        if platform.system() != "Windows":
+            return result
+        import ctypes
+        from ctypes import wintypes
+        user32 = ctypes.windll.user32
+
+        hwnd = user32.GetForegroundWindow()
+        if hwnd:
+            pid = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            try:
+                result["foreground_process_name"] = psutil.Process(pid.value).name()
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+
+        class _LASTINPUTINFO(ctypes.Structure):
+            _fields_ = [("cbSize", wintypes.UINT), ("dwTime", wintypes.DWORD)]
+
+        lii = _LASTINPUTINFO()
+        lii.cbSize = ctypes.sizeof(_LASTINPUTINFO)
+        if user32.GetLastInputInfo(ctypes.byref(lii)):
+            tick = user32.GetTickCount() if hasattr(user32, "GetTickCount") else None
+            if tick is None:  # GetTickCount64 fallback path
+                tick = ctypes.windll.kernel32.GetTickCount64()
+            result["input_idle_seconds"] = round((int(tick) - lii.dwTime) / 1000.0, 1)
+    except Exception:
+        pass
+    return result
 
 
 def collect_full_telemetry() -> Dict[str, Any]:
@@ -309,6 +472,8 @@ def collect_full_telemetry() -> Dict[str, Any]:
     gpu = get_gpu_metrics()
     proc = get_process_metrics()
     sys_power = get_system_power_metrics()
+    display_state = get_display_power_state()
+    attn = get_user_attention()
     
     record = {
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -336,8 +501,15 @@ def collect_full_telemetry() -> Dict[str, Any]:
         "battery_percentage": sys_power["battery_percentage"],
         "power_plugged": sys_power["power_plugged"],
         "power_meter_raw": sys_power["power_meter_raw"],
+        "battery_drain_pct_per_hr": sys_power["battery_drain_pct_per_hr"],
+        "battery_drain_w": sys_power["battery_drain_w"],
+        "battery_capacity_wh": sys_power["battery_capacity_wh"],
+        "screen_brightness": display_state["screen_brightness"],
+        "power_saver_active": display_state["power_saver_active"],
         "top_cpu_processes": proc["top_cpu_processes"],
-        "top_memory_processes": proc["top_memory_processes"]
+        "top_memory_processes": proc["top_memory_processes"],
+        "foreground_process_name": attn["foreground_process_name"],
+        "input_idle_seconds": attn["input_idle_seconds"]
     }
     return record
 

@@ -7,13 +7,13 @@
 - **Action**: Show landing page, highlight 3D Energy Core and the 6-step loop. Click **"Launch Dashboard"**.
 
 ### Minute 2: Real-Time Telemetry & AI Inference
-- **Say**: "Here is the live dashboard. Notice the separation: this is **Estimated Power** computed via our trained XGBoost model ($R^2: 0.975$, MAE: $0.96\text{ W}$), alongside our **Carbon Footprint** in grams of $\text{CO}_2\text{e}$ per hour."
+- **Say**: "Here is the live dashboard. Notice the separation: this is **Estimated Power** computed via our trained XGBoost model ($R^2: 0.959$, MAE: $0.98\text{ W}$ on the held-out split — see `ml/models/metrics.json`), alongside our **Carbon Footprint** in grams of $\text{CO}_2\text{e}$ per hour."
 - **Action**: Point out the live telemetry cards (CPU, RAM, GPU, Disk, Network) and the ML explanation panel explaining why wattage is elevated.
 
 ### Minute 3: Safe Optimization Execution
 - **Say**: "GreenLedger identifies non-destructive optimizations. Notice our strict safety rules: we never touch system services or delete files."
 - **Action**: Click **"Tune System"** or **"Optimize"**. Confirm the safe action (e.g. Windows Power Saver Profile).
-- **Show**: Watch the Before vs. After comparison card appear with animated counters showing an honest **~20% reduction** in power draw and grams of carbon saved!
+- **Show**: Watch the Before vs. After comparison card appear with animated counters showing the measured reduction in power draw and grams of carbon saved (Eco Mode: **43.2% ± 1.3%** on the frozen `student_typical` baseline — see `ml/reports/eco_evaluation.json`)!
 
 ### Minute 4: Green Credits & Marketplace
 - **Say**: "Because this reduction was verified by our telemetry delta engine, the user is awarded **+35 Green Credits** and a daily streak bonus!"

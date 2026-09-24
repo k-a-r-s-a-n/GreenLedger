@@ -171,6 +171,15 @@ export const BeforeAfterCard: React.FC<BeforeAfterCardProps> = ({
               <span className="text-gray-400">Estimated Power:</span>
               <span className="text-white font-semibold">{result.before_power_w.toFixed(1)} W</span>
             </div>
+            {result.before_power_interval_80 && (
+              <div className="flex justify-between py-1 border-b border-surface-border/40">
+                <span className="text-gray-400">80% interval:</span>
+                <span className="text-cyan-300">
+                  {result.before_power_interval_80[0].toFixed(1)}–
+                  {result.before_power_interval_80[1].toFixed(1)} W
+                </span>
+              </div>
+            )}
             <div className="flex justify-between py-1 border-b border-surface-border/40">
               <span className="text-gray-400">Carbon Rate:</span>
               <span className="text-gray-300">{beforeCO2} g/h</span>
@@ -202,6 +211,15 @@ export const BeforeAfterCard: React.FC<BeforeAfterCardProps> = ({
               <span className="text-gray-400">Estimated Power:</span>
               <span className="text-cyber-neon font-bold">{result.after_power_w.toFixed(1)} W</span>
             </div>
+            {result.after_power_interval_80 && (
+              <div className="flex justify-between py-1 border-b border-emerald-500/20">
+                <span className="text-gray-400">80% interval:</span>
+                <span className="text-cyan-300">
+                  {result.after_power_interval_80[0].toFixed(1)}–
+                  {result.after_power_interval_80[1].toFixed(1)} W
+                </span>
+              </div>
+            )}
             <div className="flex justify-between py-1 border-b border-emerald-500/20">
               <span className="text-gray-400">Carbon Rate:</span>
               <span className="text-white">{afterCO2} g/h</span>

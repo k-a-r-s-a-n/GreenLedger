@@ -75,7 +75,10 @@ class MLInferenceEngine:
         if self.model is None or self.schema is None:
             raise RuntimeError("Power model artifact is unavailable; train the model before predicting.")
 
-        # 2. Check for out-of-distribution values against training ranges
+        # 2. Check for out-of-distribution values against training ranges.
+        # Prefers explicit ood_min/ood_max bounds from the schema (mean +/- 3σ,
+        # intersected with physical limits); falls back to legacy 0.8x/1.3x
+        # margins for schemas trained before those bounds existed.
         is_ood = False
         ranges = self.schema.get("feature_ranges", {})
         for feat in self.schema["features"]:
@@ -83,7 +86,9 @@ class MLInferenceEngine:
             if feat in ranges:
                 f_min = ranges[feat]["min"]
                 f_max = ranges[feat]["max"]
-                if val < f_min * 0.8 or val > f_max * 1.3:
+                lo = ranges[feat].get("ood_min", f_min * 0.8)
+                hi = ranges[feat].get("ood_max", f_max * 1.3)
+                if val < lo or val > hi:
                     is_ood = True
                     warnings.append(f"Feature '{feat}' value {val} is outside typical training bounds [{f_min}, {f_max}].")
 
@@ -97,13 +102,16 @@ class MLInferenceEngine:
         
         latency_ms = (time.perf_counter() - t0) * 1000.0
 
-        # 5. Calculate feature contributions for explanation panel
+        # 5. Calculate feature contributions for explanation panel.
+        # Uses the schema's v1.1 feature set (the v1.0 hardcode hid the dominant
+        # DVFS term). Missing importances default to 0.0, never a guess.
         feature_importances = self.metrics.get("feature_importances", {}) if self.metrics else {}
         contributions = {}
-        for feat in ["cpu_utilization", "memory_usage", "process_count", "resource_pressure"]:
-            imp = feature_importances.get(feat, 0.1)
+        for feat in ["freq_util_product", "cpu_frequency", "cpu_utilization",
+                     "screen_brightness", "resource_pressure", "power_saver_active"]:
+            imp = feature_importances.get(feat, 0.0)
             raw_val = mapped_feats.get(feat, 0.0)
-            contributions[feat] = round(float(imp * raw_val), 1)
+            contributions[feat] = round(float(imp * raw_val), 2)
 
         return {
             "estimated_power_w": round(pred_w, 2),

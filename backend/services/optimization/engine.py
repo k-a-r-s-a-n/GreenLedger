@@ -11,14 +11,48 @@ Anti-abuse posture (documented in docs/api-contract.md):
 import hashlib
 import json
 import math
+import os
 import time
 from collections import deque
+from pathlib import Path
 from typing import Dict, Any, List, Optional
 
 from schemas.models import OptimizationRecommendation, BeforeAfterComparison
 from services.ml.inference import ml_engine
+from services.ml.temporal import temporal_engine
+from services.optimization.cost_models import predict_net_saving
 from services.carbon.calculator import calculate_savings
 from services.credits.rewards import credit_service
+
+# Phase 1 transition log: every accepted optimization cycle appends one JSONL
+# record (state, action, outcome) — the offline dataset Phase 3 learns from.
+# Overridable via GREENLEDGER_TRANSITION_LOG (tests point it at tmp dirs).
+def _transition_log_path() -> Path:
+    override = os.getenv("GREENLEDGER_TRANSITION_LOG")
+    if override:
+        return Path(override)
+    repo_root = Path(__file__).resolve().parent.parent.parent.parent
+    return repo_root / "ml" / "data" / "transitions" / "transitions.jsonl"
+
+
+# Compact state vector stored per transition (v1.1 signals + ground truth).
+_TRANSITION_STATE_KEYS = [
+    "cpu_utilization", "memory_usage", "disk_io", "process_count",
+    "thread_count", "uptime", "screen_brightness", "cpu_frequency",
+    "cpu_frequency_mhz", "power_saver_active", "battery_drain_w",
+    "power_meter_raw",
+]
+
+
+def _log_transition(record: Dict[str, Any]) -> None:
+    """Best-effort append; a logging failure must never fail the request."""
+    try:
+        path = _transition_log_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record) + "\n")
+    except OSError:
+        pass
 
 OPTIMIZABLE_PROCESS_NAMES = {
     "chrome.exe", "msedge.exe", "firefox.exe", "brave.exe", "opera.exe",
@@ -36,10 +70,15 @@ MAX_WINDOW_CPU_STDDEV = 15.0
 MAX_WINDOW_MEMORY_STDDEV = 15.0
 
 # Safe action whitelist. Only these action IDs (and close_process_<pid>) may be
-# evaluated server-side. Mirrors the agent's enumerated, non-arbitrary actions.
-# reduce_brightness executes via the frontend's /api/brightness route (WMI),
-# so it is verifiable server-side like the other static safe actions.
-SAFE_STATIC_ACTIONS = {"enable_power_saver", "trim_working_sets", "reduce_brightness"}
+# evaluated server-side. Every entry MUST have a real implementation:
+# enable_power_saver runs in the agent (or the Next.js /api/power-saver route),
+# reduce_brightness runs via the Next.js /api/brightness route (WMI),
+# cap_cpu_55 runs in the agent (powercfg PROCTHROTTLEMAX, reversible),
+# eco_mode is the one-cycle bundle: brightness 35 (Next route) + agent eco_core
+# (Power Saver plan + 55% CPU cap), snapshotted once before/after.
+# NOTE: trim_working_sets was removed — it was whitelisted but implemented
+# nowhere, so it could have earned credits without executing anything.
+SAFE_STATIC_ACTIONS = {"enable_power_saver", "reduce_brightness", "cap_cpu_55", "eco_mode"}
 
 
 class UnknownActionError(ValueError):
@@ -95,6 +134,19 @@ def _power_meter_value(telemetry: Dict[str, Any]) -> Optional[float]:
     return None
 
 
+def _recommend_or_gate(rec, telemetry: Dict[str, Any], estimated_power_w) -> Optional[OptimizationRecommendation]:
+    """Attach the predicted net; drop the rec when the breakeven/safety gate
+    fires. Model unavailable -> keep by rule with no prediction."""
+    if estimated_power_w is None:
+        return rec
+    pred = predict_net_saving(rec.id, telemetry, estimated_power_w)
+    if pred is None:
+        return None
+    rec.predicted_net_w = pred["predicted_net_w"]
+    rec.prediction_basis = pred["basis"]
+    return rec
+
+
 class OptimizationEngineService:
     def __init__(self):
         self._last_optimization_time: Dict[str, float] = {}
@@ -108,6 +160,12 @@ class OptimizationEngineService:
         cpu = telemetry.get("cpu_utilization", 0.0)
         mem = telemetry.get("memory_usage", 0.0)
         top_procs = telemetry.get("top_cpu_processes") or []
+        # Power estimate behind predicted-net watts. Model unavailable ->
+        # recommend by rule with no prediction attached (never a blocker).
+        try:
+            estimated_power_w = ml_engine.predict_power(telemetry)["estimated_power_w"]
+        except (ValueError, RuntimeError):
+            estimated_power_w = None
 
         # 1. High CPU Background Processes
         for p in top_procs:
@@ -143,14 +201,37 @@ class OptimizationEngineService:
             action_name="Switch Power Plan"
         ))
 
-        return recommendations
+        # 3. Eco Mode bundle — the stacked, one-cycle path to 40%+ measured
+        # reduction: display to 35%, Saver plan, 55% sustained CPU cap.
+        recommendations.append(OptimizationRecommendation(
+            id="eco_mode",
+            title="Activate Eco Mode Bundle",
+            category="eco_bundle",
+            priority="high",
+            estimated_power_reduction_pct=None,
+            reversible=True,
+            description="One verified cycle: dims display to 35%, switches to the Power Saver plan, and caps sustained CPU at 55%. Fully reversible.",
+            action_name="Activate Eco Mode"
+        ))
+
+        # Patent-gap build: predicted net on every card; breakeven/safety gate
+        # drops actions that cannot pay for themselves (or target the active app).
+        gated = []
+        for rec in recommendations:
+            kept = _recommend_or_gate(rec, telemetry, estimated_power_w)
+            if kept is not None:
+                gated.append(kept)
+        return gated
 
     def evaluate_before_after(
         self,
         action_id: str,
         before_telemetry: Dict[str, Any],
         after_telemetry: Dict[str, Any],
-        user_id: str = "default_user"
+        user_id: str = "default_user",
+        before_window: Optional[List[Dict[str, Any]]] = None,
+        after_window: Optional[List[Dict[str, Any]]] = None,
+        predicted_net_w: Optional[float] = None
     ) -> BeforeAfterComparison:
         """
         Calculates honest before-vs-after ML power estimation delta.
@@ -248,6 +329,46 @@ class OptimizationEngineService:
 
         user_state = credit_service.get_user_state(user_id)
 
+        # 8. Temporal intervals (Phase 2): when the caller supplied the raw
+        # sample windows behind each median, quantify each snapshot with an 80%
+        # interval. Missing windows / model -> nulls, never guesses. Intervals
+        # inform the significance flag; payouts still follow the point rule.
+        before_interval = self._window_interval(before_window)
+        after_interval = self._window_interval(after_window)
+        reduction_significant = (
+            before_interval is not None
+            and after_interval is not None
+            and before_interval[0] > after_interval[1]
+        )
+
+        # 9. Transition log: (state, action, outcome) for offline learning.
+        # Participation cycles are logged too — verified non-effects are data.
+        _log_transition({
+            "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "user_id": user_id,
+            "action_id": action_id,
+            "verified": bool(reduction_pct >= MIN_REDUCTION_PERCENT_THRESHOLD),
+            "before": {k: before_telemetry.get(k) for k in _TRANSITION_STATE_KEYS},
+            "after": {k: after_telemetry.get(k) for k in _TRANSITION_STATE_KEYS},
+            "p_before_w": p_before,
+            "p_after_w": p_after,
+            "reduction_watts": reduction_watts,
+            "reduction_pct": reduction_pct,
+            "co2_saved_g": savings["co2_saved_g"],
+            "credits_awarded": credits_earned,
+            "action_hash": telemetry_hash,
+            "before_interval_80": before_interval,
+            "after_interval_80": after_interval,
+            "reduction_significant": reduction_significant,
+            # Calibration loop: client-echoed prediction vs verified outcome.
+            # prediction_error_w = actual - predicted; None when no prediction.
+            "predicted_net_w": predicted_net_w,
+            "prediction_error_w": (
+                round(reduction_watts - predicted_net_w, 3)
+                if isinstance(predicted_net_w, (int, float)) else None
+            ),
+        })
+
         return BeforeAfterComparison(
             action_id=action_id,
             before_power_w=p_before,
@@ -259,8 +380,20 @@ class OptimizationEngineService:
             new_credit_balance=user_state.credit_balance,
             streak_days=user_state.current_streak_days,
             action_hash=telemetry_hash,
-            unlocked_badge=user_state.recent_transactions[-1].get("unlocked_badge") if user_state.recent_transactions else None
+            unlocked_badge=user_state.recent_transactions[-1].get("unlocked_badge") if user_state.recent_transactions else None,
+            before_power_interval_80=before_interval,
+            after_power_interval_80=after_interval
         )
+
+    @staticmethod
+    def _window_interval(window: Optional[List[Dict[str, Any]]]) -> Optional[List[float]]:
+        """80% power interval for a sample window, or None when unavailable."""
+        if not window or not temporal_engine.available:
+            return None
+        try:
+            return temporal_engine.predict_window(window)["interval_80_w"]
+        except (ValueError, RuntimeError):
+            return None
 
 
 optimization_service = OptimizationEngineService()

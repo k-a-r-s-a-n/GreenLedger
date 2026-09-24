@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { execFile } from "child_process";
 import { promisify } from "util";
 
+// Hardware-probing route — request-time only, never `next build` evaluation.
+export const dynamic = "force-dynamic";
+
 const execFileAsync = promisify(execFile);
 
 /**
