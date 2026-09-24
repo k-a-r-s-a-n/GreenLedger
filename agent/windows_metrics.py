@@ -7,6 +7,7 @@ Explicitly handles unavailable sensors with null rather than fabricating values.
 import time
 import subprocess
 import logging
+from collections import deque
 from typing import Dict, Any, List, Optional
 import psutil
 
@@ -255,6 +256,65 @@ def get_process_metrics() -> Dict[str, Any]:
         }
 
 
+# Battery drain-rate ground truth: % deltas over a rolling window × full-charge
+# capacity → watts. Windows reports battery % in coarse 1% steps, so a single
+# 2s poll delta is mostly noise — the rate is computed over up to 10 minutes
+# of history (300 polls). Positive = discharging; None when plugged in,
+# charging, or unknown. This is the real-hardware reference signal for
+# validating the ML estimates (Phase 1 ground truth).
+_battery_history: deque = deque(maxlen=300)  # (timestamp, percent, plugged)
+_battery_capacity_wh: Optional[float] = None
+_battery_capacity_probed = False
+
+
+def _get_battery_capacity_wh() -> Optional[float]:
+    """Full-charge capacity in Wh via CIM (queried once, cached forever)."""
+    global _battery_capacity_wh, _battery_capacity_probed
+    if _battery_capacity_probed:
+        return _battery_capacity_wh
+    _battery_capacity_probed = True
+    try:
+        res = subprocess.run(
+            ["powershell", "-NoProfile", "-Command",
+             "(Get-CimInstance -ClassName Win32_Battery).FullChargeCapacity"],
+            capture_output=True, text=True, timeout=4.0,
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            # FullChargeCapacity is reported in milliwatt-hours.
+            mwh = int(res.stdout.strip().split()[0])
+            if mwh > 0:
+                _battery_capacity_wh = round(mwh / 1000.0, 2)
+    except Exception:
+        _battery_capacity_wh = None
+    return _battery_capacity_wh
+
+
+def _battery_drain_rate(battery_pct: Optional[float], plugged: Optional[bool]) -> Dict[str, Optional[float]]:
+    """Rolling-window discharge rate from battery % history."""
+    now = time.time()
+    if battery_pct is not None and plugged is not None:
+        _battery_history.append((now, battery_pct, plugged))
+    drain_pct_per_hr: Optional[float] = None
+    drain_w: Optional[float] = None
+    capacity_wh = _get_battery_capacity_wh()
+    if len(_battery_history) >= 2:
+        oldest = _battery_history[0]
+        newest = _battery_history[-1]
+        span_hours = (newest[0] - oldest[0]) / 3600.0
+        # Valid only while discharging on battery across the whole window.
+        if span_hours > 0 and not oldest[2] and not newest[2]:
+            drop = oldest[1] - newest[1]
+            if drop > 0:
+                drain_pct_per_hr = round(drop / span_hours, 2)
+                if capacity_wh:
+                    drain_w = round(drain_pct_per_hr / 100.0 * capacity_wh, 2)
+    return {
+        "battery_drain_pct_per_hr": drain_pct_per_hr,
+        "battery_drain_w": drain_w,
+        "battery_capacity_wh": capacity_wh,
+    }
+
+
 def get_system_power_metrics() -> Dict[str, Any]:
     """
     Gathers system uptime, battery status, and probes Windows Power Meter counters.
@@ -301,12 +361,18 @@ def get_system_power_metrics() -> Dict[str, Any]:
     except Exception:
         power_meter_raw = None
 
+    # 5. Battery drain-rate ground truth (rolling window; None when plugged).
+    drain = _battery_drain_rate(battery_pct, power_plugged)
+
     return {
         "uptime": uptime_hours,
         "battery_percentage": battery_pct,
         "power_plugged": power_plugged,
         "temperature": temperature,
-        "power_meter_raw": power_meter_raw
+        "power_meter_raw": power_meter_raw,
+        "battery_drain_pct_per_hr": drain["battery_drain_pct_per_hr"],
+        "battery_drain_w": drain["battery_drain_w"],
+        "battery_capacity_wh": drain["battery_capacity_wh"],
     }
 
 
@@ -393,6 +459,9 @@ def collect_full_telemetry() -> Dict[str, Any]:
         "battery_percentage": sys_power["battery_percentage"],
         "power_plugged": sys_power["power_plugged"],
         "power_meter_raw": sys_power["power_meter_raw"],
+        "battery_drain_pct_per_hr": sys_power["battery_drain_pct_per_hr"],
+        "battery_drain_w": sys_power["battery_drain_w"],
+        "battery_capacity_wh": sys_power["battery_capacity_wh"],
         "screen_brightness": display_state["screen_brightness"],
         "power_saver_active": display_state["power_saver_active"],
         "top_cpu_processes": proc["top_cpu_processes"],

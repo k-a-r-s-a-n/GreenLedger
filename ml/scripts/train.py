@@ -1,8 +1,8 @@
 """
 GreenLedger - XGBoost Power Consumption Training Pipeline
-Loads dataset, conducts feature engineering, trains with fixed documented
-hyperparameters on a single 85/15 split (seed 42), evaluates on held-out
-test data, and saves model artifacts and metrics.
+Loads dataset, conducts feature engineering, runs a small documented grid
+search (4 candidates) on a validation split, trains 70/15/15 train/val/test
+(seed 42), evaluates on held-out test data, and saves model artifacts.
 """
 
 import os

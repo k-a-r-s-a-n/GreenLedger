@@ -67,6 +67,33 @@ standard CMOS DVFS surveys (`P = C·V²·f`).
 
 ---
 
+## Benchmark: Multi-Seed, Baselines, Ablations (Phase 1)
+`ml/scripts/benchmark.py` (report: `ml/reports/model_benchmark.json`) runs every
+config on 5 seeds (70/15/15 each; production hyperparameters, grid not re-run
+per seed). Full-run results (mean ± 95% CI):
+
+| Config | R² | MAE (W) | MAPE |
+|---|---|---|---|
+| XGB full (13 feat) | 0.9606 ± 0.0013 | 0.99 | 4.44% |
+| XGB no `freq_util_product` | 0.9601 ± 0.0014 | 0.99 | 4.47% |
+| XGB v1.0 features (9 feat) | 0.8048 ± 0.0126 | 2.01 | 8.51% |
+| XGB top-3 only | 0.9121 ± 0.0035 | 1.49 | 6.77% |
+| Linear regression (13 feat) | 0.9592 ± 0.0011 | 1.01 | 4.52% |
+| Mean predictor | ≈ 0 | 4.50 | 18.79% |
+
+Honest reading:
+- Metrics are **seed-stable** (±0.0013 R²) — the headline is not a lucky split.
+- The v1.1 signals (frequency/brightness/saver) are **load-bearing**: dropping
+  them costs 0.16 R². The v1.1 story holds.
+- `freq_util_product` adds ~nothing over the raw (frequency, utilization) pair
+  — trees re-learn the interaction. It stays for interpretability (the
+  explanation panel's dominant term) and convergence, not accuracy.
+- **Linear regression nearly ties XGBoost** on this data: the synthetic
+  generator is smooth enough that a linear model fits it. This is precisely
+  why Phase 1 adds real-hardware ground truth (battery drain rate) and Phase 2
+  evaluates on real noisy data — model-class comparisons are only meaningful
+  there. We report this rather than bury it.
+
 ## Action Evaluation Protocol (the headline number, honestly)
 `ml/scripts/evaluate_actions.py` runs N before/after trials per action on
 **frozen persona baselines** and reports mean reduction ± 95% CI, with the full

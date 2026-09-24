@@ -70,7 +70,7 @@ flowchart TD
 
 ## Machine Learning Pipeline & Verified Results
 
-Trained using `ml/scripts/train.py` on 10,000 samples with fixed documented hyperparameters, a single 85/15 train/test split (seed 42), and early stopping:
+Trained using `ml/scripts/train.py` on 10,000 samples with a small documented grid search (4 candidates, validation RMSE), a 70/15/15 train/val/test split (seed 42), and early stopping:
 
 | Metric | Verified Test-Set Result | Description |
 |---|---|---|

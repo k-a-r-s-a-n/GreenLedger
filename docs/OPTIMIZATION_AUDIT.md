@@ -225,3 +225,36 @@ Full-repo line-by-line re-read; all findings fixed before any new work.
   participation anti-farming ×1); `tsc --noEmit` clean; retrain reproduces
   metrics exactly. `next build` fails only on Google Fonts fetch (sandbox has
   no external web access) — no code errors.
+
+## Phase 1 — Ground truth + rigor harness (2026-09-24)
+
+### Built
+- **Battery drain-rate collector** (`agent/windows_metrics.py`): % deltas over
+  a 10-minute rolling window × CIM full-charge capacity → `battery_drain_w`
+  (and `%`/h). Null when plugged/charging/unknown. The real-hardware
+  reference signal for validating ML estimates. Backend schema + frontend
+  types carry the new fields.
+- **Transition log** (`engine.py`): every accepted cycle appends
+  (state, action, outcome) JSONL to `ml/data/transitions/` — the offline
+  dataset Phase 3 learns from. Participation cycles logged as verified
+  non-effects. Best-effort; overridable path for tests.
+- **Benchmark harness** (`ml/scripts/benchmark.py`): 5-seed evaluation,
+  baselines (linear, mean), ablations (no-DVFS-term, v1.0-feats, top-3).
+  Report: `ml/reports/model_benchmark.json`.
+- **Corrections**: train.py DOES run a 4-candidate grid on a 70/15/15 split —
+  the Phase 0 "fixed params, 85/15" copy was wrong; README + docstring fixed
+  to "small grid, 70/15/15, no CV".
+
+### Findings (reported, not buried)
+- Metrics seed-stable: R² 0.9606 ± 0.0013. Headline is not a lucky split.
+- v1.1 signals load-bearing (−0.16 R² without them). Top-3-only reaches 0.91.
+- `freq_util_product` adds ~0 accuracy over the raw pair (kept for
+  interpretability). **Linear regression ties XGBoost (0.9592)** on smooth
+  synthetic data — model-class comparisons must wait for real noisy data
+  (Phase 2), which is exactly why the drain-rate ground truth exists.
+
+### Verification (Linux sandbox)
+- Backend suite **58/58** (transition-log + fast-benchmark tests); drain-rate
+  math unit-verified with simulated samples; `tsc` clean.
+- Not verifiable here: CIM capacity probe + drain collector on real Windows
+  hardware (needs the live agent on battery power).

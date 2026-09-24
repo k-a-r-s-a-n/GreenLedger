@@ -11,14 +11,46 @@ Anti-abuse posture (documented in docs/api-contract.md):
 import hashlib
 import json
 import math
+import os
 import time
 from collections import deque
+from pathlib import Path
 from typing import Dict, Any, List, Optional
 
 from schemas.models import OptimizationRecommendation, BeforeAfterComparison
 from services.ml.inference import ml_engine
 from services.carbon.calculator import calculate_savings
 from services.credits.rewards import credit_service
+
+# Phase 1 transition log: every accepted optimization cycle appends one JSONL
+# record (state, action, outcome) — the offline dataset Phase 3 learns from.
+# Overridable via GREENLEDGER_TRANSITION_LOG (tests point it at tmp dirs).
+def _transition_log_path() -> Path:
+    override = os.getenv("GREENLEDGER_TRANSITION_LOG")
+    if override:
+        return Path(override)
+    repo_root = Path(__file__).resolve().parent.parent.parent.parent
+    return repo_root / "ml" / "data" / "transitions" / "transitions.jsonl"
+
+
+# Compact state vector stored per transition (v1.1 signals + ground truth).
+_TRANSITION_STATE_KEYS = [
+    "cpu_utilization", "memory_usage", "disk_io", "process_count",
+    "thread_count", "uptime", "screen_brightness", "cpu_frequency",
+    "cpu_frequency_mhz", "power_saver_active", "battery_drain_w",
+    "power_meter_raw",
+]
+
+
+def _log_transition(record: Dict[str, Any]) -> None:
+    """Best-effort append; a logging failure must never fail the request."""
+    try:
+        path = _transition_log_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record) + "\n")
+    except OSError:
+        pass
 
 OPTIMIZABLE_PROCESS_NAMES = {
     "chrome.exe", "msedge.exe", "firefox.exe", "brave.exe", "opera.exe",
@@ -265,6 +297,24 @@ class OptimizationEngineService:
             credits_earned = credit_service.award_participation(user_id=user_id)
 
         user_state = credit_service.get_user_state(user_id)
+
+        # 8. Transition log: (state, action, outcome) for offline learning.
+        # Participation cycles are logged too — verified non-effects are data.
+        _log_transition({
+            "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "user_id": user_id,
+            "action_id": action_id,
+            "verified": bool(reduction_pct >= MIN_REDUCTION_PERCENT_THRESHOLD),
+            "before": {k: before_telemetry.get(k) for k in _TRANSITION_STATE_KEYS},
+            "after": {k: after_telemetry.get(k) for k in _TRANSITION_STATE_KEYS},
+            "p_before_w": p_before,
+            "p_after_w": p_after,
+            "reduction_watts": reduction_watts,
+            "reduction_pct": reduction_pct,
+            "co2_saved_g": savings["co2_saved_g"],
+            "credits_awarded": credits_earned,
+            "action_hash": telemetry_hash,
+        })
 
         return BeforeAfterComparison(
             action_id=action_id,

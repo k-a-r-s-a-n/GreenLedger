@@ -23,6 +23,9 @@ export interface TelemetryData {
   battery_percentage?: number | null;
   power_plugged?: boolean | null;
   power_meter_raw?: number | null;
+  battery_drain_pct_per_hr?: number | null;
+  battery_drain_w?: number | null;
+  battery_capacity_wh?: number | null;
   screen_brightness?: number | null;
   power_saver_active?: number | null;
   top_cpu_processes?: {

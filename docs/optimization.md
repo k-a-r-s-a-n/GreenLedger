@@ -35,6 +35,13 @@ GreenLedger enforces strict non-negotiable safety guardrails:
 - **Effect**: DVFS-driven reduction under load; idle machines move little (honest physics). Previous AC/DC values are captured and re-verified for rollback.
 - **Reversible**: Yes (`undo` restores the exact previous throttle values).
 
+### Transition log (Phase 1)
+Every accepted cycle — verified or participation — appends one JSONL record
+(state, action, outcome) to `ml/data/transitions/transitions.jsonl`
+(overridable via `GREENLEDGER_TRANSITION_LOG`). Verified non-effects are data
+too. This is the offline dataset the Phase 3 policy learns from. Logging is
+best-effort and can never fail a request.
+
 ### 5. Eco Mode Bundle (`eco_mode`)
 - **Action**: One verified cycle stacking every safe lever — display to 35% (Next.js route) + agent `eco_core` (Power Saver plan + 55% CPU cap). Snapshotted once before/after; all-or-nothing execution with single undo.
 - **Effect**: The 40%+ path. Trial protocol (`ml/scripts/evaluate_actions.py`, frozen `student_typical` baseline, n=20): **43.2% ± 1.3%** mean power reduction (carbon % equals power %).

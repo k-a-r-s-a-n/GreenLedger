@@ -33,6 +33,11 @@ class TelemetryInput(BaseModel):
     battery_percentage: Optional[float] = None
     power_plugged: Optional[bool] = None
     power_meter_raw: Optional[float] = None
+    # Phase 1 ground truth: battery drain-rate reference signal (agent-derived;
+    # None when plugged in, charging, or capacity unknown).
+    battery_drain_pct_per_hr: Optional[float] = None
+    battery_drain_w: Optional[float] = None
+    battery_capacity_wh: Optional[float] = None
     # v1.1.0 model signals (display + DVFS awareness)
     screen_brightness: Optional[float] = Field(None, ge=0.0, le=100.0)
     cpu_frequency_mhz: Optional[float] = Field(None, ge=0.0)

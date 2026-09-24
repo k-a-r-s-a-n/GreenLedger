@@ -19,7 +19,8 @@ The GreenLedger local agent collects hardware performance counters on Windows 11
 | **Network**| Ping Latency (ms) | Fast Windows `ping -n 1 -w 800` | `null` |
 | **Network**| Throughput (KB/s) | `psutil.net_io_counters()` delta | `0.0` |
 | **Processes**| Count & Top Consuming | `psutil.process_iter()` | Baseline |
-| **Power** | Windows Power Meter | `\Power Meter(*)\Power` counter | `null` |
+| **Power** | Windows Power Meter | `\Power Meter(*)\Power` counter | `null` (when the OEM exposes no meter) |
+| **Power** | Battery Drain Rate (%/h and W) | Battery-% deltas over a 10-minute rolling window × CIM full-charge capacity (Phase 1 ground truth) | `null` (plugged in, charging, or capacity unknown) |
 
 ---
 

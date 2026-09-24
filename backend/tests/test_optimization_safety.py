@@ -176,3 +176,21 @@ def test_meter_contradiction_cannot_claim_model_savings():
     assert data["reduction_watts"] == 0.0
     assert data["hourly_co2_saved_g"] == 0.0
     assert data["credits_awarded"] == 5
+
+
+def test_accepted_cycle_appends_transition_log(tmp_path, monkeypatch):
+    """Every accepted cycle (verified or participation) logs (state, action, outcome)."""
+    import json
+    log_file = tmp_path / "transitions.jsonl"
+    monkeypatch.setenv("GREENLEDGER_TRANSITION_LOG", str(log_file))
+    response = _evaluate("transition_user", _live_telemetry("normal"), _live_telemetry("optimized"))
+    assert response.status_code == 200
+    lines = log_file.read_text(encoding="utf-8").strip().split("\n")
+    assert len(lines) == 1
+    record = json.loads(lines[0])
+    assert record["action_id"] == "enable_power_saver"
+    assert record["verified"] is True
+    assert record["before"]["cpu_utilization"] > 0
+    assert record["after"]["cpu_utilization"] > 0
+    assert record["reduction_pct"] > 0
+    assert record["action_hash"] == response.json()["action_hash"]
