@@ -315,3 +315,25 @@ without learning (all of them). This build closes the loop:
   tests); `tsc` clean; smoke: eco 9.31 W / saver 2.48 W predicted, kill
   suppressed on foreground match, unattended boost 35.7 → 46.4.
 - Not verifiable here: attention signals on real Windows (ctypes path).
+
+---
+
+## Phase 4 — Publishable/Patentable Package (2026-09-24)
+
+- **Paper draft** (`docs/paper.md`): abstract → methods → evaluation →
+  limitations, all numbers cited from `results_summary.json` (XGB MAE
+  0.98 W / R² 0.9606±0.0013; LSTM MAE 0.99 W, coverage 0.799; eco bundle
+  43.2% ± 1.3%). Limitations section states all five validity threats.
+- **Invention disclosure** (`docs/invention-disclosure.md`): 5 concepts
+  (drain-calibrated meter, interval-verified actions, self-calibrating
+  recommender, verified-outcome payouts, transition-log dataset) with
+  claim sketches, prior-art distinctions, and fallback positions.
+- **Field protocol** (`docs/field-protocol.md`): 7 jobs from bench setup
+  to offline policy, each with procedure, publication bar, and artifact;
+  policy work explicitly gated on metered reward data.
+- **Reproducibility**: `summarize_results.py` + pinned test (paper can
+  never drift from reports); full pipeline documented in the draft.
+
+### Verification (Linux sandbox)
+- Backend suite **71/71** (summary aggregator tests); `tsc` clean.
+- Nothing in this phase requires hardware: it is evidence packaging.

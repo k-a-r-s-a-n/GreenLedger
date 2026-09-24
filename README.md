@@ -88,6 +88,18 @@ Trained using `ml/scripts/train.py` on 10,000 samples with a small documented gr
 
 ---
 
+## Research & Publication Package (Phase 4)
+
+- `docs/paper.md` — paper draft; every number cites `ml/reports/results_summary.json`
+- `docs/invention-disclosure.md` — provisional-style disclosure (5 concepts + claim sketches)
+- `docs/patent-landscape.md` — prior-art survey with white-space analysis
+- `docs/field-protocol.md` — the real-hardware validation program (drain calibration → metered trials → fitted constants → offline policy)
+- `ml/scripts/summarize_results.py` — regenerates the results summary the paper cites
+
+Standing rule: no number enters the paper except through the summary script.
+
+---
+
 ## Windows Native Telemetry Agent
 
 The native agent collects live hardware counters via `psutil`, PowerShell CIM, and Windows Performance Counters:
