@@ -138,10 +138,15 @@ fetched from the agent). **200**: `OptimizationRecommendation[]`:
   "pid": null,
   "process_name": null,
   "cpu_percent": null,
-  "memory_percent": null
+  "memory_percent": null,
+  "predicted_net_w": 2.48,
+  "prediction_basis": "8% of estimated power (plan-throttle heuristic v1)"
 }]
 ```
 Only safe action ids are ever recommended: `enable_power_saver`, `eco_mode`, or `close_process_<pid>`.
+`predicted_net_w` is null when the power estimate is unavailable; actions
+failing the breakeven gate (≤ 0.25 W) or targeting the foreground process
+are withheld, not shown with zero.
 
 ### `POST /api/optimization/evaluate-delta`
 Request `DeltaEvaluationRequest`:
@@ -152,7 +157,8 @@ Request `DeltaEvaluationRequest`:
   "after_telemetry": { "...": "...", "is_live": true },
   "user_id": "default_user",
   "before_window": [{ "...": "raw samples behind the before median" }],
-  "after_window": [{ "...": "raw samples behind the after median" }]
+  "after_window": [{ "...": "raw samples behind the after median" }],
+  "predicted_net_w": 9.31
 }
 ```
 Optional `before_window`/`after_window` (Phase 2) enable 80% power intervals

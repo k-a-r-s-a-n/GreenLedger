@@ -44,6 +44,10 @@ class TelemetryInput(BaseModel):
     power_saver_active: Optional[int] = Field(None, ge=0, le=1)
     top_cpu_processes: Optional[List[Dict[str, Any]]] = None
     top_memory_processes: Optional[List[Dict[str, Any]]] = None
+    # User-attention signals (agent-derived; None when unsupported): the zombie
+    # safety gate never recommends killing the foreground process.
+    foreground_process_name: Optional[str] = None
+    input_idle_seconds: Optional[float] = None
 
 
 class PredictionResponse(BaseModel):
@@ -85,6 +89,10 @@ class OptimizationRecommendation(BaseModel):
     process_name: Optional[str] = None
     cpu_percent: Optional[float] = None
     memory_percent: Optional[float] = None
+    # Predicted NET watts (gross minus transition cost) with its basis string;
+    # null when inputs are missing. Advisory only — verification mints credits.
+    predicted_net_w: Optional[float] = None
+    prediction_basis: Optional[str] = None
 
 
 class OptimizationExecuteRequest(BaseModel):
@@ -118,6 +126,10 @@ class DeltaEvaluationRequest(BaseModel):
     # intervals for honest significance reading.
     before_window: Optional[List[Dict[str, Any]]] = None
     after_window: Optional[List[Dict[str, Any]]] = None
+    # Client-echoed prediction from the recommendation card (if shown), logged
+    # against the verified outcome for recommender calibration. Never affects
+    # verification or payouts.
+    predicted_net_w: Optional[float] = None
 
 
 class BeforeAfterComparison(BaseModel):

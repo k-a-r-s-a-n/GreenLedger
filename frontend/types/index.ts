@@ -25,6 +25,8 @@ export interface TelemetryData {
   power_meter_raw?: number | null;
   battery_drain_pct_per_hr?: number | null;
   battery_drain_w?: number | null;
+  foreground_process_name?: string | null;
+  input_idle_seconds?: number | null;
   battery_capacity_wh?: number | null;
   screen_brightness?: number | null;
   power_saver_active?: number | null;
@@ -66,6 +68,8 @@ export interface OptimizationOpportunity {
   process_name?: string;
   cpu_percent?: number;
   memory_percent?: number;
+  predicted_net_w?: number | null;
+  prediction_basis?: string | null;
 }
 
 export interface BeforeAfterResult {

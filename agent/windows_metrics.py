@@ -422,6 +422,47 @@ def get_display_power_state() -> Dict[str, Any]:
     return {"screen_brightness": brightness, "power_saver_active": saver}
 
 
+def get_user_attention() -> Dict[str, Any]:
+    """
+    Foreground process name + seconds since last input (Windows only, via
+    GetForegroundWindow / GetLastInputInfo). Feeds the zombie-score safety
+    gate: the active app is never a kill candidate. Returns None per-field on
+    non-Windows platforms or any failure — unknown attention means "no boost",
+    never assumed unattended.
+    """
+    result: Dict[str, Any] = {"foreground_process_name": None, "input_idle_seconds": None}
+    try:
+        import platform
+        if platform.system() != "Windows":
+            return result
+        import ctypes
+        from ctypes import wintypes
+        user32 = ctypes.windll.user32
+
+        hwnd = user32.GetForegroundWindow()
+        if hwnd:
+            pid = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            try:
+                result["foreground_process_name"] = psutil.Process(pid.value).name()
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+
+        class _LASTINPUTINFO(ctypes.Structure):
+            _fields_ = [("cbSize", wintypes.UINT), ("dwTime", wintypes.DWORD)]
+
+        lii = _LASTINPUTINFO()
+        lii.cbSize = ctypes.sizeof(_LASTINPUTINFO)
+        if user32.GetLastInputInfo(ctypes.byref(lii)):
+            tick = user32.GetTickCount() if hasattr(user32, "GetTickCount") else None
+            if tick is None:  # GetTickCount64 fallback path
+                tick = ctypes.windll.kernel32.GetTickCount64()
+            result["input_idle_seconds"] = round((int(tick) - lii.dwTime) / 1000.0, 1)
+    except Exception:
+        pass
+    return result
+
+
 def collect_full_telemetry() -> Dict[str, Any]:
     """Assembles unified telemetry record conforming to GreenLedger schema."""
     cpu = get_cpu_metrics()
@@ -432,6 +473,7 @@ def collect_full_telemetry() -> Dict[str, Any]:
     proc = get_process_metrics()
     sys_power = get_system_power_metrics()
     display_state = get_display_power_state()
+    attn = get_user_attention()
     
     record = {
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -465,7 +507,9 @@ def collect_full_telemetry() -> Dict[str, Any]:
         "screen_brightness": display_state["screen_brightness"],
         "power_saver_active": display_state["power_saver_active"],
         "top_cpu_processes": proc["top_cpu_processes"],
-        "top_memory_processes": proc["top_memory_processes"]
+        "top_memory_processes": proc["top_memory_processes"],
+        "foreground_process_name": attn["foreground_process_name"],
+        "input_idle_seconds": attn["input_idle_seconds"]
     }
     return record
 

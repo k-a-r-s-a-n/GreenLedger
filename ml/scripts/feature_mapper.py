@@ -86,8 +86,14 @@ def map_telemetry_to_features(telemetry: Dict[str, Any]) -> Tuple[Dict[str, floa
     required = ["cpu_utilization", "memory_usage", "disk_io", "process_count",
                 "thread_count", "uptime", "cpu_frequency"]
     # The agent/demo send MHz under "cpu_frequency" (legacy key); accept the
-    # explicit alias too.
-    freq_raw = telemetry.get("cpu_frequency_mhz", telemetry.get("cpu_frequency"))
+    # explicit alias too. NOTE: dict.get(key, default) does NOT fall back when
+    # the key exists with value None — which is exactly what a validated
+    # TelemetryInput dumps (cpu_frequency_mhz=None alongside a good
+    # cpu_frequency). Hence the explicit None check: without it every
+    # schema-validated payload 422s here.
+    freq_raw = telemetry.get("cpu_frequency_mhz")
+    if freq_raw is None:
+        freq_raw = telemetry.get("cpu_frequency")
     probe = dict(telemetry)
     probe["cpu_frequency"] = freq_raw
     missing = [feature for feature in required if probe.get(feature) is None]

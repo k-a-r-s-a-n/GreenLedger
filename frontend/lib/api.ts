@@ -586,7 +586,8 @@ export async function evaluateOptimizationDelta(
   before: TelemetryData,
   after: TelemetryData,
   userId: string = "default_user",
-  windows?: { before_window?: TelemetryData[]; after_window?: TelemetryData[] }
+  windows?: { before_window?: TelemetryData[]; after_window?: TelemetryData[] },
+  predictedNetW?: number | null
 ): Promise<BeforeAfterResult> {
   return request<BeforeAfterResult>(
     "/api/backend/optimization/evaluate-delta",
@@ -600,6 +601,7 @@ export async function evaluateOptimizationDelta(
         user_id: userId,
         ...(windows?.before_window ? { before_window: windows.before_window } : {}),
         ...(windows?.after_window ? { after_window: windows.after_window } : {}),
+        ...(typeof predictedNetW === "number" ? { predicted_net_w: predictedNetW } : {}),
       }),
     }
   );

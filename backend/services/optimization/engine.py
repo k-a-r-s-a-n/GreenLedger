@@ -20,6 +20,7 @@ from typing import Dict, Any, List, Optional
 from schemas.models import OptimizationRecommendation, BeforeAfterComparison
 from services.ml.inference import ml_engine
 from services.ml.temporal import temporal_engine
+from services.optimization.cost_models import predict_net_saving
 from services.carbon.calculator import calculate_savings
 from services.credits.rewards import credit_service
 
@@ -133,6 +134,19 @@ def _power_meter_value(telemetry: Dict[str, Any]) -> Optional[float]:
     return None
 
 
+def _recommend_or_gate(rec, telemetry: Dict[str, Any], estimated_power_w) -> Optional[OptimizationRecommendation]:
+    """Attach the predicted net; drop the rec when the breakeven/safety gate
+    fires. Model unavailable -> keep by rule with no prediction."""
+    if estimated_power_w is None:
+        return rec
+    pred = predict_net_saving(rec.id, telemetry, estimated_power_w)
+    if pred is None:
+        return None
+    rec.predicted_net_w = pred["predicted_net_w"]
+    rec.prediction_basis = pred["basis"]
+    return rec
+
+
 class OptimizationEngineService:
     def __init__(self):
         self._last_optimization_time: Dict[str, float] = {}
@@ -146,6 +160,12 @@ class OptimizationEngineService:
         cpu = telemetry.get("cpu_utilization", 0.0)
         mem = telemetry.get("memory_usage", 0.0)
         top_procs = telemetry.get("top_cpu_processes") or []
+        # Power estimate behind predicted-net watts. Model unavailable ->
+        # recommend by rule with no prediction attached (never a blocker).
+        try:
+            estimated_power_w = ml_engine.predict_power(telemetry)["estimated_power_w"]
+        except (ValueError, RuntimeError):
+            estimated_power_w = None
 
         # 1. High CPU Background Processes
         for p in top_procs:
@@ -194,7 +214,14 @@ class OptimizationEngineService:
             action_name="Activate Eco Mode"
         ))
 
-        return recommendations
+        # Patent-gap build: predicted net on every card; breakeven/safety gate
+        # drops actions that cannot pay for themselves (or target the active app).
+        gated = []
+        for rec in recommendations:
+            kept = _recommend_or_gate(rec, telemetry, estimated_power_w)
+            if kept is not None:
+                gated.append(kept)
+        return gated
 
     def evaluate_before_after(
         self,
@@ -203,7 +230,8 @@ class OptimizationEngineService:
         after_telemetry: Dict[str, Any],
         user_id: str = "default_user",
         before_window: Optional[List[Dict[str, Any]]] = None,
-        after_window: Optional[List[Dict[str, Any]]] = None
+        after_window: Optional[List[Dict[str, Any]]] = None,
+        predicted_net_w: Optional[float] = None
     ) -> BeforeAfterComparison:
         """
         Calculates honest before-vs-after ML power estimation delta.
@@ -332,6 +360,13 @@ class OptimizationEngineService:
             "before_interval_80": before_interval,
             "after_interval_80": after_interval,
             "reduction_significant": reduction_significant,
+            # Calibration loop: client-echoed prediction vs verified outcome.
+            # prediction_error_w = actual - predicted; None when no prediction.
+            "predicted_net_w": predicted_net_w,
+            "prediction_error_w": (
+                round(reduction_watts - predicted_net_w, 3)
+                if isinstance(predicted_net_w, (int, float)) else None
+            ),
         })
 
         return BeforeAfterComparison(

@@ -287,3 +287,31 @@ prediction intervals, served as an optional complement to XGBoost.
   `tsc` clean; end-to-end smoke (5-tick window → intervals; delta with
   windows → non-overlapping intervals on a 33% reduction).
 - Not verifiable here: interval calibration on live Windows telemetry.
+
+---
+
+## Patent-gap build — Self-Calibrating Verified Savings (2026-09-24)
+
+The patent survey (`docs/patent-landscape.md`) showed every rival either
+predicts without verifying (Microsoft '939, Vigyanlabs '584) or verifies
+without learning (all of them). This build closes the loop:
+- **Cost models** (`cost_models.py`): every card carries predicted net watts
+  (gross − transition cost) + basis; breakeven gate (≤ 0.25 W stays silent);
+  attention-weighted zombie score with a safety gate (foreground app never a
+  kill candidate; unknown attention = no boost).
+- **Agent**: `foreground_process_name` + `input_idle_seconds` (Windows
+  GetForegroundWindow/GetLastInputInfo; None elsewhere).
+- **Calibration**: delta eval echoes `predicted_net_w`; transition log gains
+  `prediction_error_w`; `ml/scripts/calibration.py` reports per-action
+  bias/MAE/RMSE over verified cycles.
+- **Root fix found en route**: `feature_mapper` used
+  `telemetry.get("cpu_frequency_mhz", telemetry.get("cpu_frequency"))`, which
+  does NOT fall back when the key exists as None — every TelemetryInput-validated
+  payload (i.e. all of `/predict` over HTTP) 422'd. Explicit None check now;
+  regression test added. This was a live production bug, not a corner case.
+
+### Verification (Linux sandbox)
+- Backend suite **69/69** (cost-model/gate/zombie/mapper/calibration-log
+  tests); `tsc` clean; smoke: eco 9.31 W / saver 2.48 W predicted, kill
+  suppressed on foreground match, unattended boost 35.7 → 46.4.
+- Not verifiable here: attention signals on real Windows (ctypes path).

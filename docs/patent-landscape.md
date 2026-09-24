@@ -111,7 +111,17 @@ No patent found combines, in one closed loop:
    itself, used to pre-train the action policy. The prediction patents act
    from forecasting; none learn from verified outcomes of their own actions.
 
-## 5. Risks and watch items
+## 5. Implemented response (patent-gap build, 2026-09-24)
+
+White-space items 2–4 are now built, not just claimed: predicted-net cards
+with breakeven + foreground safety gates (`cost_models.py`), agent attention
+signals, predicted-vs-actual transition logging, and `calibration.py`. Item
+1 (drain-calibrated meter) is Phase 1's collector awaiting real-hardware
+data. The Microsoft '939 distinction is now structural: we predict *watts
+net of transition cost* per user action and verify after acting; they match
+*workload probabilities* and transition P-states without verification.
+
+## 6. Risks and watch items
 
 - **Microsoft '939 (to 2030)**: our engine recommends P-state/power-plan
   changes, but on *current* observed state + verified outcomes, not on

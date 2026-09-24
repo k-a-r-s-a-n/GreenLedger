@@ -42,6 +42,23 @@ Every accepted cycle — verified or participation — appends one JSONL record
 too. This is the offline dataset the Phase 3 policy learns from. Logging is
 best-effort and can never fail a request.
 
+### Predicted net + calibration loop (patent-gap build)
+Every recommendation carries `predicted_net_w` (predicted gross watts minus
+the transition cost of acting) with a `prediction_basis` string, computed by
+`backend/services/optimization/cost_models.py` (documented heuristics v1).
+Two gates fire before a card is shown: the **breakeven gate** (predicted net
+≤ 0.25 W stays silent — cf. Microsoft US8190939B2's breakeven discipline,
+applied here to user actions via predicted watts) and the **safety gate**
+(the foreground process is never a kill candidate, via the agent's
+`foreground_process_name` / `input_idle_seconds` attention signals; unknown
+attention means no boost, never assumed unattended).
+The frontend echoes the card's prediction in `evaluate-delta`
+(`predicted_net_w`); the engine logs it next to the verified outcome plus
+`prediction_error_w` (actual − predicted). `ml/scripts/calibration.py` reads
+the log and reports per-action bias/MAE/RMSE over verified cycles — the
+mechanism by which heuristic v1 constants become fitted values. Predictions
+are advisory; only verified measurement mints credits.
+
 ### 5. Eco Mode Bundle (`eco_mode`)
 - **Action**: One verified cycle stacking every safe lever — display to 35% (Next.js route) + agent `eco_core` (Power Saver plan + 55% CPU cap). Snapshotted once before/after; all-or-nothing execution with single undo.
 - **Effect**: The 40%+ path. Trial protocol (`ml/scripts/evaluate_actions.py`, frozen `student_typical` baseline, n=20): **43.2% ± 1.3%** mean power reduction (carbon % equals power %).

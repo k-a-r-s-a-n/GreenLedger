@@ -168,7 +168,9 @@ export default function OptimizePage() {
         before.snapshot,
         after.snapshot,
         "default_user",
-        { before_window: before.samples, after_window: after.samples }
+        { before_window: before.samples, after_window: after.samples },
+        // Echo the card's prediction so the server can log predicted-vs-actual.
+        opportunity.predicted_net_w ?? undefined
       );
       return { comparison, before: before.snapshot, after: after.snapshot };
     },
@@ -524,9 +526,11 @@ export default function OptimizePage() {
                           {rec.priority} impact
                         </span>
                         <span className="text-xs font-mono text-emerald-300">
-                          {rec.estimated_power_reduction_pct == null
-                            ? "Measured after execution"
-                            : `~${rec.estimated_power_reduction_pct}% drop`}
+                          {typeof rec.predicted_net_w === "number"
+                            ? `Predicted net ~${rec.predicted_net_w.toFixed(1)} W`
+                            : rec.estimated_power_reduction_pct == null
+                              ? "Measured after execution"
+                              : `~${rec.estimated_power_reduction_pct}% drop`}
                         </span>
                       </div>
                       <h3 className="text-base font-semibold tracking-tight-2 text-white mt-3">
