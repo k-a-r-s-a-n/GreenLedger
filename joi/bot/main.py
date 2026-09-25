@@ -8,6 +8,7 @@ import asyncio
 import logging
 import os
 from datetime import datetime, timedelta
+from time import monotonic
 
 import httpx
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -148,13 +149,16 @@ async def _fire_webhook(url: str, payload: dict) -> bool:
 
 async def _handle_text_message(user_text: str, user_id: int, reply) -> None:
     """Shared pipeline for typed text and transcribed voice. `reply` sends messages."""
+    t0 = monotonic()
     context = await _safe(get_memory_context(user_id), "(memory offline)") \
         if db_ready() else "(memory offline)"
+    ctx_s = monotonic() - t0
     prompt = (f"CURRENT TIME (Asia/Kolkata): {_now_ist():%Y-%m-%d %H:%M}\n"
               f"MEMORY CONTEXT:\n{context}\n\nHUMAN:\n{user_text}")
     try:
         raw, model = await brain_chat(SYSTEM_PROMPT, prompt)
-        log.info("brain answered via %s (%d chars)", model, len(raw))
+        log.info("pipeline: ctx=%.1fs brain=%.1fs via %s (%d chars)",
+                 ctx_s, monotonic() - t0 - ctx_s, model, len(raw))
     except Exception as exc:
         log.warning("brain failed: %s", str(exc)[:200])
         await reply("Aiyo, my brain glitched (Gemini error). Try again in a bit? 🛠️")
@@ -165,12 +169,13 @@ async def _handle_text_message(user_text: str, user_id: int, reply) -> None:
         if err:
             await reply(f"{reply_text}\n\n⏰ {err}")
             return
-    if db_ready():
-        await _safe(add_note(user_id, "chat", f"H: {user_text[:500]} / J: {reply_text[:500]}"))
-        if mem:
-            await _safe(add_note(user_id, "fact", mem))
     if action == "none":
         await reply(reply_text)
+        if db_ready():  # save AFTER replying so memory never slows the answer
+            asyncio.create_task(_safe(add_note(
+                user_id, "chat", f"H: {user_text[:500]} / J: {reply_text[:500]}")))
+            if mem:
+                asyncio.create_task(_safe(add_note(user_id, "fact", mem)))
         return
     pid = await _safe(add_pending(user_id, action, detail), 0) if db_ready() else 0
     keyboard = InlineKeyboardMarkup([[
@@ -178,6 +183,11 @@ async def _handle_text_message(user_text: str, user_id: int, reply) -> None:
         InlineKeyboardButton("No ❌", callback_data=f"no:{pid}:{action}"),
     ]])
     await reply(f"{reply_text}\n\nConfirm {ACTION_LABEL[action]}?\n`{detail}`", buttons=keyboard)
+    if db_ready():
+        asyncio.create_task(_safe(add_note(
+            user_id, "chat", f"H: {user_text[:500]} / J: {reply_text[:500]}")))
+        if mem:
+            asyncio.create_task(_safe(add_note(user_id, "fact", mem)))
 
 
 async def _execute_phone_action(query, pid: int, action: str) -> None:

@@ -1,5 +1,6 @@
 """Neon Postgres memory: dated notes, profile facts, pending confirmations."""
 
+import asyncio
 import logging
 import os
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -63,14 +64,16 @@ async def add_note(user_id: int, kind: str, body: str) -> None:
 
 async def get_memory_context(user_id: int, facts: int = 25, chats: int = 12) -> str:
     """Builds the MEMORY CONTEXT block injected into the brain prompt."""
-    async with _pool.acquire() as conn:
-        prof = await conn.fetch("select key, value from joi_profile order by key")
-        fact_rows = await conn.fetch(
-            "select body, created_at from joi_notes where user_id=$1 and kind='fact'"
-            " order by created_at desc limit $2", user_id, facts)
-        chat_rows = await conn.fetch(
-            "select body, created_at from joi_notes where user_id=$1 and kind='chat'"
-            " order by created_at desc limit $2", user_id, chats)
+    async def _q(sql, *args):
+        async with _pool.acquire() as conn:
+            return await conn.fetch(sql, *args)
+
+    prof, fact_rows, chat_rows = await asyncio.gather(
+        _q("select key, value from joi_profile order by key"),
+        _q("select body, created_at from joi_notes where user_id=$1 and kind='fact'"
+           " order by created_at desc limit $2", user_id, facts),
+        _q("select body, created_at from joi_notes where user_id=$1 and kind='chat'"
+           " order by created_at desc limit $2", user_id, chats))
     lines = []
     if prof:
         lines.append("PROFILE: " + "; ".join(f"{r['key']}={r['value']}" for r in prof))
