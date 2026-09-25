@@ -7,7 +7,7 @@ Runs webhook mode on Render (RENDER_EXTERNAL_URL set) else polling locally.
 import asyncio
 import logging
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from time import monotonic
 
 import httpx
@@ -79,7 +79,7 @@ async def _safe(coro, default=None):
 
 
 def _now_ist() -> datetime:
-    return datetime.utcnow() + IST
+    return datetime.now(timezone.utc) + IST
 
 
 def parse_brain(raw: str) -> tuple[str, str, str, str]:
@@ -206,6 +206,7 @@ async def _execute_phone_action(query, pid: int, action: str) -> None:
             return
         ok = await _fire_webhook(MACRODROID_CALL_URL, {"nickname": nick})
         if db_ready():
+            await _safe(set_pending_status(pid, "approved"))
             await _safe(add_note(query.from_user.id, "note", f"CALL {nick}: {'sent' if ok else 'FAILED'}"))
         await query.edit_message_text(
             f"📞 Calling *{nick}* now — your phone is dialing."
@@ -227,6 +228,7 @@ async def _execute_phone_action(query, pid: int, action: str) -> None:
             "hour": when.hour, "minute": when.minute,
             "day": when.day, "month": when.month, "year": when.year})
         if db_ready():
+            await _safe(set_pending_status(pid, "approved"))
             await _safe(add_note(query.from_user.id, "note",
                                  f"ALARM '{text}' @ {d['time']}: {'sent' if ok else 'FAILED'}"))
         await query.edit_message_text(
@@ -319,11 +321,12 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await _safe(set_pending_status(int(pid), "denied"))
         await query.edit_message_text("Cancelled, no problem. 👍")
         return
-    if pid.isdigit() and int(pid) and db_ready():
-        await _safe(set_pending_status(int(pid), "approved"))
     if action in ("call", "alarm"):
+        # Phone actions mark themselves approved AFTER executing (see _execute_phone_action)
         await _execute_phone_action(query, int(pid) if pid.isdigit() else 0, action)
         return
+    if pid.isdigit() and int(pid) and db_ready():
+        await _safe(set_pending_status(int(pid), "approved"))
     module = MODULE_NOT_WIRED.get(action, "that module")
     await query.edit_message_text(
         f"✅ Confirmed and logged! Honest heads-up: {module} gets wired in the next "
