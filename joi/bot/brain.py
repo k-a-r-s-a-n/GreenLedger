@@ -10,9 +10,9 @@ from google.genai import types
 log = logging.getLogger("joi.brain")
 
 API_KEY = os.environ.get("GEMINI_API_KEY", "")
-PRIMARY = os.environ.get("GEMINI_MODEL", "gemini-flash-latest")
-MODELS = list(dict.fromkeys([PRIMARY, "gemini-flash-latest", "gemini-flash-lite-latest",
-                                 "gemini-3.1-flash-lite", "gemini-3-flash-preview"]))
+PRIMARY = os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-lite")
+MODELS = list(dict.fromkeys([PRIMARY, "gemini-3.1-flash-lite", "gemini-flash-lite-latest",
+                                 "gemini-flash-latest", "gemini-3-flash-preview"]))
 
 _client = None
 
@@ -22,7 +22,13 @@ def _client_ok():
     if _client is None:
         if not API_KEY:
             raise RuntimeError("GEMINI_API_KEY is not set")
-        _client = genai.Client(api_key=API_KEY)
+        try:
+            _client = genai.Client(
+                api_key=API_KEY,
+                http_options=types.HttpOptions(timeout=30000),
+            )
+        except TypeError:
+            _client = genai.Client(api_key=API_KEY)  # older SDK: no http_options
     return _client
 
 

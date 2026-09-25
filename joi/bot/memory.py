@@ -1,6 +1,7 @@
 """Neon Postgres memory: dated notes, profile facts, pending confirmations."""
 
 import asyncio
+import json
 import logging
 import os
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -96,7 +97,7 @@ async def add_pending(user_id: int, action: str, detail: str) -> int:
     async with _pool.acquire() as conn:
         pid = await conn.fetchval(
             "insert into joi_pending(user_id, action, payload) values($1, $2, $3) returning id",
-            user_id, action, {"detail": detail})
+            user_id, action, json.dumps({"detail": detail}))
     return int(pid)
 
 
