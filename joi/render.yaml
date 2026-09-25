@@ -1,0 +1,21 @@
+# Render Blueprint (reference). We deploy via manual Web Service (see README),
+# because Render only auto-detects render.yaml at the repo root.
+services:
+  - type: web
+    name: joi
+    runtime: python
+    rootDir: joi
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m bot.main
+    autoDeploy: true
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: OWNER_TELEGRAM_ID
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
