@@ -25,12 +25,16 @@ from .brain import chat as brain_chat, transcribe as brain_transcribe
 from .memory import (
     add_note,
     add_pending,
+    get_contacts,
     get_memory_context,
     get_pending,
+    get_profile_value,
+    get_recent_alarms,
     get_recent_facts,
     init_db,
     ready as db_ready,
     set_pending_status,
+    set_profile,
 )
 from .persona import SYSTEM_PROMPT
 
@@ -53,6 +57,7 @@ HELP = (
     "Just talk to me — text or voice notes, Tanglish welcome.\n\n"
     "Commands:\n"
     "/remember <fact> — save something forever (e.g. /remember my DBMS exam is Oct 14)\n"
+    "/contact <name> — teach me a call nickname (e.g. /contact Saju)\n"
     "/memory — show what I remember about you\n"
     "/whoami — show your Telegram ID\n\n"
     "For calls, alarms, apps and mail I'll always ask you to tap Yes first. ✅"
@@ -107,7 +112,7 @@ def parse_brain(raw: str) -> tuple[str, str, str, str]:
         elif section == "reply":
             reply_lines.append(line)
     reply = "\n".join(reply_lines).strip() or raw.strip()
-    if action not in ("none", "call", "alarm", "open_app", "mail"):
+    if action not in ("none", "call", "alarm", "open_app", "mail", "list_alarms", "delete_alarm"):
         action = "none"
     return reply, action, detail, mem
 
@@ -133,6 +138,8 @@ def _alarm_error(detail: str) -> str:
         return "what exact date/time? (e.g. today 7pm, tomorrow 6am)"
     if when <= _now_ist():
         return f"that time ({d['time']}) already passed — which day/time did you mean?"
+    if (when.date() - _now_ist().date()).days > 1:
+        return "I can only set alarms for today or tomorrow right now (phone Clock limit) — pick a time within that?"
     return ""
 
 
@@ -165,6 +172,11 @@ async def _handle_text_message(user_text: str, user_id: int, reply) -> None:
         await reply("Aiyo, my brain glitched (Gemini error). Try again in a bit? 🛠️")
         return
     reply_text, action, detail, mem = parse_brain(raw)
+    if action in ("list_alarms", "delete_alarm"):
+        await _handle_alarm_query(user_id, action, detail, reply)
+        if db_ready():
+            asyncio.create_task(_safe(add_note(user_id, "chat", f"H: {user_text[:500]} / J: (alarm query)")))
+        return
     if action == "alarm":
         err = _alarm_error(detail)
         if err:
@@ -201,6 +213,10 @@ async def _execute_phone_action(query, pid: int, action: str) -> None:
     d = _parse_detail(detail)
     if action == "call":
         nick = d.get("nickname") or d.get("name") or "?"
+        if db_ready() and nick != "?":  # canonical spelling from /contact (case-proof)
+            canon = await _safe(get_profile_value(f"contact:{nick.lower()}"), None)
+            if canon:
+                nick = canon
         if not MACRODROID_CALL_URL:
             await query.edit_message_text(
                 "📞 MacroDroid call macro isn't linked yet — finish Phase 3 Android setup first. 🔧")
@@ -208,7 +224,7 @@ async def _execute_phone_action(query, pid: int, action: str) -> None:
         ok = await _fire_webhook(MACRODROID_CALL_URL, {"nickname": nick})
         if db_ready():
             await _safe(set_pending_status(pid, "approved"))
-            await _safe(add_note(query.from_user.id, "note", f"CALL {nick}: {'sent' if ok else 'FAILED'}"))
+            await _safe(add_note(query.from_user.id, "call", f"CALL {nick}: {'sent' if ok else 'FAILED'}"))
         await query.edit_message_text(
             f"📞 Calling *{nick}* now — your phone is dialing."
             if ok else "📞 Aiyo, couldn't reach your phone. Is MacroDroid running with internet? Try again.",
@@ -230,12 +246,41 @@ async def _execute_phone_action(query, pid: int, action: str) -> None:
             "day": when.day, "month": when.month, "year": when.year})
         if db_ready():
             await _safe(set_pending_status(pid, "approved"))
-            await _safe(add_note(query.from_user.id, "note",
-                                 f"ALARM '{text}' @ {d['time']}: {'sent' if ok else 'FAILED'}"))
+            if ok:
+                await _safe(add_note(query.from_user.id, "alarm", f"{d['time']} | {text}"))
+            else:
+                await _safe(add_note(query.from_user.id, "note",
+                                     f"ALARM FAILED '{text}' @ {d['time']}"))
         await query.edit_message_text(
             f"⏰ Alarm set for *{when:%b %d, %I:%M %p}* — it's a real phone alarm, fires even offline. 🔔"
             if ok else "⏰ Aiyo, couldn't reach your phone. Is MacroDroid running with internet? Try again.",
             parse_mode="Markdown")
+
+
+async def _handle_alarm_query(user_id: int, action: str, detail: str, reply) -> None:
+    """Read-only alarm list + delete guidance (Android blocks app-side deletion)."""
+    if not db_ready():
+        await reply("My memory is offline — can't pull your alarm list right now. 🧠💤")
+        return
+    alarms = await _safe(get_recent_alarms(user_id, 10), []) or []
+    if action == "list_alarms":
+        if not alarms:
+            await reply("I haven't set any alarms yet. Say 'wake me up at 6am' and I'll set one. ⏰")
+            return
+        await reply("Alarms I've set:\n\n• " + "\n• ".join(alarms) +
+                    "\n\nSay 'delete my 6am alarm' to remove one (I'll guide you — Android makes that a Clock-app job).")
+        return
+    d = _parse_detail(detail)
+    needle = (d.get("text") or "").lower().strip()
+    matches = alarms if not needle else [a for a in alarms if needle in a.lower()]
+    if not matches:
+        await reply("Couldn't find an alarm matching that. Here's what I have:\n\n• " +
+                    ("\n• ".join(alarms) if alarms else "none yet") +
+                    "\n\nTell me which one (e.g. 'delete the 6am one').")
+        return
+    await reply("Found:\n\n• " + "\n• ".join(matches[:3]) +
+                "\n\nHonest bit: Android lets no app delete Clock alarms, so I can't remove it myself. "
+                "Open your **Clock app → Alarms** and toggle it off (2 taps). Want a replacement? ⏰")
 
 
 # ---- handlers ----
@@ -274,10 +319,32 @@ async def cmd_memory(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         await update.message.reply_text("My memory is offline right now — try again later? 🧠💤")
         return
     facts = await _safe(get_recent_facts(update.effective_user.id), []) or []
-    if not facts:
-        await update.message.reply_text("Nothing stored yet — tell me things with /remember and I'll keep them. 💛")
+    contacts = await _safe(get_contacts(), []) or []
+    if facts:
+        msg = "Here's what I remember about you:\n\n• " + "\n• ".join(facts)
+    else:
+        msg = "Nothing stored yet — tell me things with /remember and I'll keep them. 💛"
+    if contacts:
+        msg += "\n\n📞 Call contacts: " + ", ".join(contacts)
+    await update.message.reply_text(msg)
+
+
+async def cmd_contact(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_owner(update):
         return
-    await update.message.reply_text("Here's what I remember about you:\n\n• " + "\n• ".join(facts))
+    name = " ".join(context.args).strip()
+    if not name:
+        await update.message.reply_text("Usage: /contact <nickname> — e.g. /contact Saju\n"
+                                        "Run once per person after adding them in the MacroDroid call macro.")
+        return
+    if not db_ready():
+        await update.message.reply_text("My memory is offline right now — try again later? 🧠💤")
+        return
+    await _safe(set_profile(f"contact:{name.lower()}", name))
+    await update.message.reply_text(
+        f"Got it — *{name}* is now a known contact. 💛\n"
+        f"Make sure your MacroDroid `Joi Call` branch uses this exact spelling, then just say 'call {name}'.",
+        parse_mode="Markdown")
 
 
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -356,6 +423,7 @@ def main() -> None:
     app.add_handler(CommandHandler("whoami", cmd_whoami))
     app.add_handler(CommandHandler("remember", cmd_remember))
     app.add_handler(CommandHandler("memory", cmd_memory))
+    app.add_handler(CommandHandler("contact", cmd_contact))
     app.add_handler(CallbackQueryHandler(on_button))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     app.add_handler(MessageHandler(filters.VOICE, on_voice))
