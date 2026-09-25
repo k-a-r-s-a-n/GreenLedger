@@ -85,6 +85,33 @@ async def get_memory_context(user_id: int, facts: int = 25, chats: int = 12) -> 
     return "\n".join(lines) if lines else "(no memories yet)"
 
 
+async def get_recent_alarms(user_id: int, limit: int = 10) -> list[str]:
+    async with _pool.acquire() as conn:
+        rows = await conn.fetch(
+            "select body from joi_notes where user_id=$1 and kind='alarm'"
+            " order by created_at desc limit $2", user_id, limit)
+    return [r["body"] for r in rows]
+
+
+async def set_profile(key: str, value: str) -> None:
+    async with _pool.acquire() as conn:
+        await conn.execute(
+            "insert into joi_profile(key, value) values($1, $2)"
+            " on conflict(key) do update set value=$2, updated_at=now()", key, value)
+
+
+async def get_profile_value(key: str):
+    async with _pool.acquire() as conn:
+        return await conn.fetchval("select value from joi_profile where key=$1", key)
+
+
+async def get_contacts() -> list[str]:
+    async with _pool.acquire() as conn:
+        rows = await conn.fetch(
+            "select value from joi_profile where key like 'contact:%' order by value")
+    return [r["value"] for r in rows]
+
+
 async def get_recent_facts(user_id: int, limit: int = 10) -> list[str]:
     async with _pool.acquire() as conn:
         rows = await conn.fetch(
