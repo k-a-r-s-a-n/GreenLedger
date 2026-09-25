@@ -10,8 +10,9 @@ from google.genai import types
 log = logging.getLogger("joi.brain")
 
 API_KEY = os.environ.get("GEMINI_API_KEY", "")
-PRIMARY = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
-MODELS = list(dict.fromkeys([PRIMARY, "gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.5-flash-lite"]))
+PRIMARY = os.environ.get("GEMINI_MODEL", "gemini-flash-latest")
+MODELS = list(dict.fromkeys([PRIMARY, "gemini-flash-latest", "gemini-flash-lite-latest",
+                                 "gemini-3.1-flash-lite", "gemini-3-flash-preview"]))
 
 _client = None
 
