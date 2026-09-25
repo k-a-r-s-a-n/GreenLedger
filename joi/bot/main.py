@@ -1,13 +1,15 @@
-"""Joi — Phase 2: owner-gated Telegram bot, Gemini brain, Neon memory.
+"""Joi — Phase 2+3: owner-gated Telegram bot, Gemini brain, Neon memory,
+MacroDroid phone actions (call/alarm) via webhook.
 
 Runs webhook mode on Render (RENDER_EXTERNAL_URL set) else polling locally.
-Self-verifies on boot: logs DB + model status so Render logs prove health.
 """
 
 import asyncio
 import logging
 import os
+from datetime import datetime, timedelta
 
+import httpx
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
     Application,
@@ -23,6 +25,7 @@ from .memory import (
     add_note,
     add_pending,
     get_memory_context,
+    get_pending,
     get_recent_facts,
     init_db,
     ready as db_ready,
@@ -39,6 +42,9 @@ TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 OWNER_ID = int(os.environ.get("OWNER_TELEGRAM_ID", "0") or 0)
 PORT = int(os.environ.get("PORT", "10000"))
 RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
+MACRODROID_CALL_URL = os.environ.get("MACRODROID_CALL_URL", "")
+MACRODROID_ALARM_URL = os.environ.get("MACRODROID_ALARM_URL", "")
+IST = timedelta(hours=5, minutes=30)
 
 HELP = (
     "Hey, I'm *Joi* 💛\n\n"
@@ -51,11 +57,11 @@ HELP = (
 )
 
 MODULE_NOT_WIRED = {
-    "call": "calling (Phase 3, Android side)",
-    "alarm": "alarms (Phase 3, Android side)",
     "open_app": "opening laptop apps (Phase 4, laptop worker)",
     "mail": "sending mail (Phase 4, laptop worker)",
 }
+ACTION_LABEL = {"call": "📞 call", "alarm": "⏰ alarm",
+                "open_app": "💻 open app", "mail": "✉️ mail"}
 
 
 def _is_owner(update: Update) -> bool:
@@ -69,6 +75,10 @@ async def _safe(coro, default=None):
     except Exception as exc:
         log.warning("memory op failed: %s", str(exc)[:160])
         return default
+
+
+def _now_ist() -> datetime:
+    return datetime.utcnow() + IST
 
 
 def parse_brain(raw: str) -> tuple[str, str, str, str]:
@@ -100,11 +110,48 @@ def parse_brain(raw: str) -> tuple[str, str, str, str]:
     return reply, action, detail, mem
 
 
+def _parse_detail(detail: str) -> dict:
+    """'text=call Amma | time=2026-09-26 19:00' -> {text:..., time:...}"""
+    out: dict[str, str] = {}
+    for part in detail.split("|"):
+        if "=" in part:
+            key, _, value = part.partition("=")
+            out[key.strip().lower()] = value.strip()
+    return out
+
+
+def _alarm_error(detail: str) -> str:
+    """Validate alarm DETAIL. Returns '' when OK, else a human-readable problem."""
+    d = _parse_detail(detail)
+    if not d.get("text"):
+        return "what should the alarm say?"
+    try:
+        when = datetime.strptime(d.get("time", ""), "%Y-%m-%d %H:%M")
+    except ValueError:
+        return "what exact date/time? (e.g. today 7pm, tomorrow 6am)"
+    if when <= _now_ist():
+        return f"that time ({d['time']}) already passed — which day/time did you mean?"
+    return ""
+
+
+async def _fire_webhook(url: str, payload: dict) -> bool:
+    """POST to a MacroDroid webhook (query params + JSON body, belt & suspenders)."""
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.post(url, params=payload, json=payload)
+        log.info("webhook -> %s %s", url.split("/")[2], resp.status_code)
+        return 200 <= resp.status_code < 300
+    except Exception as exc:
+        log.warning("webhook failed: %s", str(exc)[:160])
+        return False
+
+
 async def _handle_text_message(user_text: str, user_id: int, reply) -> None:
     """Shared pipeline for typed text and transcribed voice. `reply` sends messages."""
     context = await _safe(get_memory_context(user_id), "(memory offline)") \
         if db_ready() else "(memory offline)"
-    prompt = f"MEMORY CONTEXT:\n{context}\n\nHUMAN:\n{user_text}"
+    prompt = (f"CURRENT TIME (Asia/Kolkata): {_now_ist():%Y-%m-%d %H:%M}\n"
+              f"MEMORY CONTEXT:\n{context}\n\nHUMAN:\n{user_text}")
     try:
         raw, model = await brain_chat(SYSTEM_PROMPT, prompt)
         log.info("brain answered via %s (%d chars)", model, len(raw))
@@ -113,6 +160,11 @@ async def _handle_text_message(user_text: str, user_id: int, reply) -> None:
         await reply("Aiyo, my brain glitched (Gemini error). Try again in a bit? 🛠️")
         return
     reply_text, action, detail, mem = parse_brain(raw)
+    if action == "alarm":
+        err = _alarm_error(detail)
+        if err:
+            await reply(f"{reply_text}\n\n⏰ {err}")
+            return
     if db_ready():
         await _safe(add_note(user_id, "chat", f"H: {user_text[:500]} / J: {reply_text[:500]}"))
         if mem:
@@ -120,14 +172,57 @@ async def _handle_text_message(user_text: str, user_id: int, reply) -> None:
     if action == "none":
         await reply(reply_text)
         return
-    # Real-world action -> pending + Yes/No buttons (safety rails).
     pid = await _safe(add_pending(user_id, action, detail), 0) if db_ready() else 0
     keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton("Yes ✅", callback_data=f"ok:{pid}:{action}"),
         InlineKeyboardButton("No ❌", callback_data=f"no:{pid}:{action}"),
     ]])
-    label = {"call": "📞 call", "alarm": "⏰ alarm", "open_app": "💻 open app", "mail": "✉️ mail"}[action]
-    await reply(f"{reply_text}\n\nConfirm {label}?\n`{detail}`", buttons=keyboard)
+    await reply(f"{reply_text}\n\nConfirm {ACTION_LABEL[action]}?\n`{detail}`", buttons=keyboard)
+
+
+async def _execute_phone_action(query, pid: int, action: str) -> None:
+    """Approved call/alarm -> fire MacroDroid webhook on the user's phone."""
+    pend = await _safe(get_pending(pid), None) if db_ready() else None
+    detail = (pend or {}).get("detail", "") if isinstance(pend, dict) else ""
+    if pend and pend.get("status") != "pending":
+        await query.edit_message_text("Already handled this one. 👍")
+        return
+    d = _parse_detail(detail)
+    if action == "call":
+        nick = d.get("nickname") or d.get("name") or "?"
+        if not MACRODROID_CALL_URL:
+            await query.edit_message_text(
+                "📞 MacroDroid call macro isn't linked yet — finish Phase 3 Android setup first. 🔧")
+            return
+        ok = await _fire_webhook(MACRODROID_CALL_URL, {"nickname": nick})
+        if db_ready():
+            await _safe(add_note(query.from_user.id, "note", f"CALL {nick}: {'sent' if ok else 'FAILED'}"))
+        await query.edit_message_text(
+            f"📞 Calling *{nick}* now — your phone is dialing."
+            if ok else "📞 Aiyo, couldn't reach your phone. Is MacroDroid running with internet? Try again.",
+            parse_mode="Markdown")
+    elif action == "alarm":
+        text = d.get("text", "Alarm")
+        try:
+            when = datetime.strptime(d.get("time", ""), "%Y-%m-%d %H:%M")
+        except ValueError:
+            await query.edit_message_text("⏰ That time didn't parse — tell me again (e.g. tomorrow 6am)?")
+            return
+        if not MACRODROID_ALARM_URL:
+            await query.edit_message_text(
+                "⏰ MacroDroid alarm macro isn't linked yet — finish Phase 3 Android setup first. 🔧")
+            return
+        ok = await _fire_webhook(MACRODROID_ALARM_URL, {
+            "text": text, "time": d["time"],
+            "hour": when.hour, "minute": when.minute,
+            "day": when.day, "month": when.month, "year": when.year})
+        if db_ready():
+            await _safe(add_note(query.from_user.id, "note",
+                                 f"ALARM '{text}' @ {d['time']}: {'sent' if ok else 'FAILED'}"))
+        await query.edit_message_text(
+            f"⏰ Alarm set for *{when:%b %d, %I:%M %p}* — it's a real phone alarm, fires even offline. 🔔"
+            if ok else "⏰ Aiyo, couldn't reach your phone. Is MacroDroid running with internet? Try again.",
+            parse_mode="Markdown")
 
 
 # ---- handlers ----
@@ -139,7 +234,6 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def cmd_whoami(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # Public on purpose: bootstrap step so the owner can discover their ID.
     uid = update.effective_user.id if update.effective_user else 0
     locked = "locked to you ✅" if uid == OWNER_ID and OWNER_ID else \
         "not locked yet — paste this number as OWNER_TELEGRAM_ID on Render 🔧"
@@ -215,11 +309,11 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await _safe(set_pending_status(int(pid), "denied"))
         await query.edit_message_text("Cancelled, no problem. 👍")
         return
-    # Approved.
     if pid.isdigit() and int(pid) and db_ready():
         await _safe(set_pending_status(int(pid), "approved"))
-        await _safe(add_note(query.from_user.id, "note",
-                             f"User APPROVED {action} (module pending): {query.message.text[:300]}"))
+    if action in ("call", "alarm"):
+        await _execute_phone_action(query, int(pid) if pid.isdigit() else 0, action)
+        return
     module = MODULE_NOT_WIRED.get(action, "that module")
     await query.edit_message_text(
         f"✅ Confirmed and logged! Honest heads-up: {module} gets wired in the next "
@@ -235,6 +329,9 @@ async def _post_init(app: Application) -> None:
     except Exception as exc:
         log.warning("boot check: database=FAILED (%s)", str(exc)[:200])
     log.info("boot check: owner=%s", OWNER_ID if OWNER_ID else "NOT SET (only /whoami works)")
+    log.info("boot check: phone actions: call=%s alarm=%s",
+             "LINKED" if MACRODROID_CALL_URL else "not linked",
+             "LINKED" if MACRODROID_ALARM_URL else "not linked")
 
 
 def main() -> None:

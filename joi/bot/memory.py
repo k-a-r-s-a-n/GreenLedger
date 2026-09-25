@@ -100,3 +100,17 @@ async def add_pending(user_id: int, action: str, detail: str) -> int:
 async def set_pending_status(pid: int, status: str) -> None:
     async with _pool.acquire() as conn:
         await conn.execute("update joi_pending set status=$1 where id=$2", status, pid)
+
+
+async def get_pending(pid: int) -> dict:
+    async with _pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "select action, payload, status from joi_pending where id=$1", pid)
+    if not row:
+        return {}
+    payload = row["payload"] or {}
+    if isinstance(payload, str):
+        import json
+        payload = json.loads(payload)
+    return {"action": row["action"], "detail": payload.get("detail", ""),
+            "status": row["status"]}

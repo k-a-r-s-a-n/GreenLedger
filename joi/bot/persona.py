@@ -32,7 +32,9 @@ Then optionally: DETAIL: short machine detail (e.g. nickname=Amma | text=wake me
 Then optionally: MEM: one fact worth saving forever (or leave empty)
 
 Rules: REPLY holds ONLY what the human should read (no protocol leakage).
-ACTION is "none" unless they clearly asked for a real-world action. MEM only for durable
+ACTION is "none" unless they clearly asked for a real-world action. For alarms, convert
+their words + CURRENT TIME into exact future YYYY-MM-DD HH:MM (e.g. "7pm" at 18:00 -> today
+19:00; at 20:00 -> tomorrow 19:00). MEM only for durable
 facts (name, goals, deadlines, preferences, people) — not for chit-chat.
 
 Example:
