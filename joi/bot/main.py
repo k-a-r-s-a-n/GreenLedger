@@ -46,6 +46,7 @@ RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
 MACRODROID_CALL_URL = os.environ.get("MACRODROID_CALL_URL", "")
 MACRODROID_ALARM_URL = os.environ.get("MACRODROID_ALARM_URL", "")
 IST = timedelta(hours=5, minutes=30)
+IST_TZ = timezone(IST)
 
 HELP = (
     "Hey, I'm *Joi* 💛\n\n"
@@ -79,7 +80,7 @@ async def _safe(coro, default=None):
 
 
 def _now_ist() -> datetime:
-    return datetime.now(timezone.utc) + IST
+    return datetime.now(IST_TZ)
 
 
 def parse_brain(raw: str) -> tuple[str, str, str, str]:
@@ -127,7 +128,7 @@ def _alarm_error(detail: str) -> str:
     if not d.get("text"):
         return "what should the alarm say?"
     try:
-        when = datetime.strptime(d.get("time", ""), "%Y-%m-%d %H:%M")
+        when = datetime.strptime(d.get("time", ""), "%Y-%m-%d %H:%M").replace(tzinfo=IST_TZ)
     except ValueError:
         return "what exact date/time? (e.g. today 7pm, tomorrow 6am)"
     if when <= _now_ist():
@@ -215,7 +216,7 @@ async def _execute_phone_action(query, pid: int, action: str) -> None:
     elif action == "alarm":
         text = d.get("text", "Alarm")
         try:
-            when = datetime.strptime(d.get("time", ""), "%Y-%m-%d %H:%M")
+            when = datetime.strptime(d.get("time", ""), "%Y-%m-%d %H:%M").replace(tzinfo=IST_TZ)
         except ValueError:
             await query.edit_message_text("⏰ That time didn't parse — tell me again (e.g. tomorrow 6am)?")
             return
